@@ -277,61 +277,101 @@ def pairwise_association(scan_dir, frame_ids, objects_index, objects, poses, K, 
 def exhaustive_association(scan_dir, trajectories, objects, poses, K, to_visualize_epipolar=False,
                            to_visualize_traj=False):
 
-    def check_algebraic_distance(src_obj, dst_obj, poses, K, src_frame_idx, dst_frame_idx):
+    def _calc_algebraic_distance(src_obj_index, dst_obj_index):
+        src_frame_idx = src_obj_index[0]
+        src_bbox_idx = src_obj_index[1]
+        dst_frame_idx = dst_obj_index[0]
+        dst_bbox_idx = dst_obj_index[1]
+
+        src_obj = objects[src_frame_idx][src_bbox_idx]
+        dst_obj = objects[dst_frame_idx][dst_bbox_idx]
+
         x = np.ones((3, 1))
         x[:2, 0] = src_obj['center']
         y = np.ones((1, 3))
         y[0, :2] = dst_obj['center']
-        dist, epipolar_line = algebraic_distance(poses, K, src_frame_idx, dst_frame_idx, x, y)
-        return dist, epipolar_line
 
-    def traj_pairwise_association(to_check_ids, full_trajectories, MIN_DIST=0.04):
-        while to_check_ids!= []:
-            cur_check_id = to_check_ids[0]
-            candidate_ids = to_check_ids[1:]
-            src_traj = trajectories[cur_check_id][1] # trajectory, list of (frame_id, obj_id)
-            full_trajectory = src_traj.copy()
-            remove_from_check_ids = [cur_check_id]
+        forward_dist, forward_epipolar_line = algebraic_distance(poses, K, src_frame_idx, dst_frame_idx, x, y)
+        backward_dist, backward_epipolar_line = algebraic_distance(poses, K, dst_frame_idx, src_frame_idx,
+                                                                   y.transpose(), x.transpose())
 
-            if len(candidate_ids) == 0:
-                full_trajectories.append(full_trajectory)
+        if to_visualize_epipolar:
+            visualize_epipolar_geometry(scan_dir, objects, src_frame_idx, src_bbox_idx, forward_epipolar_line,
+                                        dst_frame_idx, [dst_bbox_idx], dst_bbox_idx, backward_epipolar_line,
+                                        [src_bbox_idx])
+
+        return (forward_dist + backward_dist)
+
+    def traj_pairwise_association(trajectories_to_link, MIN_DIST=0.06):
+
+        trajectories_linked = []
+
+        # extract trajectory pairs,
+        # note that if the two trajectories are from the same frame, it means they are the two instances
+        pairs = []
+        for a, traj_a in enumerate(trajectories_to_link):
+            frameids_a = set([t[0] for t in traj_a])
+            for b, traj_b in enumerate(trajectories_to_link):
+                if a == b: continue
+                frameids_b = set([t[0] for t in traj_b])
+                if frameids_a.isdisjoint(frameids_b):
+                    pairs.append((a,b))
+
+        if pairs == []:
+            return trajectories_to_link
+
+        # compute initial algebraic distance for each trajectory pair
+        M = {}
+        for (a, b) in pairs:
+            # check the algebraic distance between the last object in src_traj and the first object in dst_traj
+            src_obj_index = trajectories_to_link[a][-1] #<frame_idx, bbox_idx>
+            dst_obj_index = trajectories_to_link[b][0]
+            M[(a, b)] = _calc_algebraic_distance(src_obj_index, dst_obj_index)
+
+        # hierarchal search
+        while M != {}:
+            #select the pair with shortest distance
+            sel_pair = sorted(M.items(), key=lambda i:i[1])[0]
+
+            # if the distance is larger than the threshold, save the trajectories in M
+            # elif the distance is less than the threshold, link the two trajectories
+            if sel_pair[1] > MIN_DIST: break
+
+            a, b = sel_pair[0]
+
+            #link the two trajectory and put into the traj_linked
+            new_traj = []
+            new_traj.extend(trajectories_to_link[a])
+            new_traj.extend(trajectories_to_link[b])
+            trajectories_to_link.append(new_traj)
+
+            #delete (a,j), (i,b), (b,a) from M
+            keys_to_delete = []
+            for key in M.keys():
+                if a==key[0] or b==key[1] or (a==key[1] and b==key[0]):
+                    keys_to_delete.append(key)
+
+            for k in keys_to_delete: del M[k]
+
+            # if all the trajectories are pair up, add the new trajectory to list and break the loop
+            if M == {}:
+                trajectories_linked.append(new_traj)
                 break
 
-            for i, candidate_id in enumerate(candidate_ids):
+            # update (b,j) to (ab, j) and (i,a) to (i, ab)
+            new_id = len(trajectories_to_link)-1
+            for key in M.keys():
+                if a in key:
+                    M[(key[0], new_id)] = M.pop(key)
+                elif b in key:
+                    M[(new_id, key[1])] = M.pop(key)
 
-                dst_traj = trajectories[candidate_id][1]
-                # check the epipolar constraint between the last object in src_traj and the first object in dst_traj
-                src_obj_index = src_traj[-1]    #<frame_idx, bbox_idx>
-                src_obj = objects[src_obj_index[0]][src_obj_index[1]]
-                dst_obj_index = dst_traj[0]
-                dst_obj = objects[dst_obj_index[0]][dst_obj_index[1]]
+        for (i,j) in M.keys():
+            if trajectories_to_link[i] in trajectories_linked or trajectories_to_link[j] in trajectories_linked: continue
+            trajectories_linked.append(trajectories_to_link[i])
+            trajectories_linked.append(trajectories_to_link[j])
 
-                forward_dist, forward_epipolar_line = check_algebraic_distance(src_obj, dst_obj, poses, K,
-                                                                               src_obj_index[0], dst_obj_index[0])
-                backward_dist, backward_epipolar_line = check_algebraic_distance(dst_obj, src_obj, poses, K,
-                                                                                 dst_obj_index[0], src_obj_index[0])
-
-                if to_visualize_epipolar:
-                    visualize_epipolar_geometry(scan_dir, objects, src_obj_index[0], src_obj_index[1],
-                                                forward_epipolar_line, dst_obj_index[0], [dst_obj_index[1]],
-                                                dst_obj_index[1], backward_epipolar_line, [dst_obj_index[1]])
-
-                if forward_dist < MIN_DIST and backward_dist < MIN_DIST:
-                    full_trajectory.extend(dst_traj)
-                    remove_from_check_ids.append(candidate_id)
-                    src_traj = dst_traj
-                else:
-                    full_trajectories.append(full_trajectory)
-                    break
-            else:
-                full_trajectories.append(full_trajectory)
-                break
-
-            for remove_id in remove_from_check_ids:
-                to_check_ids.remove(remove_id)
-
-        return full_trajectories
-
+        return trajectories_linked
 
     class2traj = {}
     for i, (classname, trajectory) in enumerate(trajectories):
@@ -348,7 +388,9 @@ def exhaustive_association(scan_dir, trajectories, objects, poses, K, to_visuali
             full_trajectories.append(trajectories[traj_id][1])
         else:
             # if there are multiple trajectories, link them via pairwise association
-            full_trajectories = traj_pairwise_association(traj_ids, full_trajectories)
+            trajectories_to_link = [trajectories[traj_id][1] for traj_id in traj_ids]
+            trajectories_linked = traj_pairwise_association(trajectories_to_link)
+            full_trajectories.extend(trajectories_linked)
 
     if to_visualize_traj:
         for i, full_trajectory in enumerate(full_trajectories):
@@ -374,7 +416,8 @@ def process_one_scan(scan_dir, scan_name, valid_frame_ids, min_ratio=10):
         label_file = os.path.join(scan_dir, 'bbox2d_18class', '{0}_bbox.pkl'.format(frame_id))
         bboxes2d = utils.read_2Dbbox(label_file)  # list of dictionaries
 
-        ## filter out some invalid bbox (e.g., the width or height or area of bbox is lower than a threshold..)
+        ## filter out some invalid bbox (e.g., the width or height or area of bbox is lower than a threshold..)i
+	    # TODO: consider prior size of each class to filter out relatively small bbox..
         new_bboxes2d = []
         bbox_idx = 0
         for i, bbox in enumerate(bboxes2d):
