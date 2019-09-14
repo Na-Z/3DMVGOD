@@ -27,32 +27,59 @@ def fundamental_matrix(K, poses, src_frame_idx, dst_frame_idx):
     return F
 
 
-def algebraic_distance(poses, K, src_frame_idx, dst_frame_idx, x, y):
+def algebraic_distance(poses, K, src_frame_idx, dst_frame_idx, p_S, p_D):
     '''
-    algebraic distance R_i = R(x_i, x_i') = (x_i')^T * F * (x_i)
+    --> refer to Section 4.2 in 'Fundamental Matrix Estimation:  A Study of Error Criteria'
+        algebraic distance R = R(x_s, x_d) = (x_d)^T * F * (x_s)
+    :param p_S: point in image I_S, numpy array, (3,1)
+    :param p_D: point(s) in image I_D, numpy array, (3,n)
+             I_S and I_D are two perspective images of the same scene
+    :return: R: algebraic epipolar distance:  scalar
+             l_D: epipolar line in I_D that corresponds to x_s
+             l_S: epipolar line in I_S that corresponds to x_d
     '''
     F = fundamental_matrix(K, poses, src_frame_idx, dst_frame_idx)  # (3,3)
-    epipolar_line = np.dot(F, x)  # (3,1)
-    dist = np.dot(y, epipolar_line).reshape(-1)  # (n)
-    return np.abs(dist), epipolar_line
+    l_D = np.dot(F, p_S)  # epipolar line (3,1)
+    l_S = np.dot(F.transpose(), p_D) #epipolar lines (3, n)
+    R = np.dot(p_D.transpose(), l_D).reshape(-1)  # (n)
+    return R, l_D, l_S
 
 
-def check_epipolar_constraint(src_obj, dst_candidate_objs, poses, K, src_frame_idx, dst_frame_idx, MIN_DIST=0.02):
+def symmetric_epipolar_distance(poses, K, src_frame_idx, dst_frame_idx, p_S, p_D):
+    '''
+    --> refer to Section 4.3 in 'Fundamental Matrix Estimation:  A Study of Error Criteria'
+        It measures the geometric distance of each point to it sepipolar line
+
+    :param p_S: point in image I_S, numpy array, (3,1)
+    :param p_D: point(s) in image I_D, numpy array, (3,n)
+             I_S and I_D are two perspective images of the same scene
+    :return: SED_square: symmtric epipolar distance: numpy array, each element is a non-negative scalar
+             l: epipolar line
+    '''
+    R, l_D, l_S = algebraic_distance(poses, K, src_frame_idx, dst_frame_idx, p_S, p_D)
+    n_pts = p_D.shape[1]
+    SED_square = np.zeros((n_pts))
+    for i in range(n_pts):
+        SED_square[i] = (1/(l_S[0,i]**2 + l_S[1,i]**2) + 1/(l_D[0]**2 + l_D[1]**2)) * (R[i]**2)
+    return SED_square, l_D
+
+
+def check_epipolar_constraint(src_obj, dst_candidate_objs, poses, K, src_frame_idx, dst_frame_idx, MIN_SED=10000.0):
 
     src_center = src_obj['center']
-    x = np.ones((3,1))
-    x[:2, 0] = src_center
+    p_S = np.ones((3,1))
+    p_S[:2, 0] = src_center
 
-    y = np.ones((len(dst_candidate_objs), 3)) #(n,3)
+    p_D = np.ones((3, len(dst_candidate_objs))) #(3,n)
     for i, obj in enumerate(dst_candidate_objs):
-        y[i, :2] = obj['center']
+        p_D[:2, i] = obj['center']
 
-    dist, epipolar_line = algebraic_distance(poses, K, src_frame_idx, dst_frame_idx, x, y)
+    SED, epipolar_line = symmetric_epipolar_distance(poses, K, src_frame_idx, dst_frame_idx, p_S, p_D)
 
-    if np.amin(dist) < MIN_DIST:
-        sel_ids = np.where(dist<MIN_DIST)[0]
+    if np.amin(SED) < MIN_SED:
+        sel_ids = np.where(SED<MIN_SED)[0]
         if len(sel_ids) > 1:
-            sel_dist = dist[sel_ids]
+            sel_dist = SED[sel_ids]
             sel_ids = sel_ids[np.argsort(sel_dist)]
         dst_bbox_ids = [dst_candidate_objs[sel_id]['bbox_id'] for sel_id in sel_ids]
         return (dst_bbox_ids, epipolar_line)
@@ -86,6 +113,53 @@ def check_epipolar_constraint(src_obj, dst_candidate_objs, poses, K, src_frame_i
 #     return iou, scale
 
 
+def upsize_box(box, upsize_times):
+    w = box[2] - box[0]
+    h = box[3] - box[1]
+
+    offset_w = (upsize_times-1) * w
+    offset_h = (upsize_times-1) * h
+
+    new_box = [0, 0, cfg.SCANNET.IMAGE_WIDTH, cfg.SCANNET.IMAGE_HEIGHT]
+    new_box[0] = max(new_box[0], box[0]-(offset_w//2))
+    new_box[1] = max(new_box[1], box[1]-(offset_h//2))
+    new_box[2] = min(new_box[2], box[2]+(offset_w-offset_w//2))
+    new_box[3] = min(new_box[3], box[3]+(offset_h-offset_h//2))
+
+    return new_box
+
+
+def compute_spatial_overlap(boxA, boxB, boxAArea, boxBArea, MIN_BOX_RATIO=8, UPSIZE_TIMES=1.5):
+    '''
+    We assume that the positions of one object in two consecutive frames should have an overlap
+    In case the size of the object is too small, we also enlarge the object size to some extent.
+    :return: overlap ratio
+    '''
+    # TODO: measure the size of object, enlarge the bbox n times if the size is lower than a threshold.
+    MIN_BOX_AREA = (cfg.SCANNET.IMAGE_HEIGHT // MIN_BOX_RATIO) * (cfg.SCANNET.IMAGE_WIDTH // MIN_BOX_RATIO)
+
+    if boxAArea < MIN_BOX_AREA: boxA = upsize_box(boxA, UPSIZE_TIMES)
+    if boxBArea < MIN_BOX_AREA: boxB = upsize_box(boxB, UPSIZE_TIMES)
+
+     # determine the (x, y)-coordinates of the intersection rectangle
+    xA = max(boxA[0], boxB[0])
+    yA = max(boxA[1], boxB[1])
+    xB = min(boxA[2], boxB[2])
+    yB = min(boxA[3], boxB[3])
+
+    # compute the area of intersection rectangle
+    interArea = max(0, xB - xA + 1) * max(0, yB - yA + 1)
+
+    # compute the area of both the prediction and ground-truth rectangles
+    boxAArea = (boxA[2] - boxA[0] + 1) * (boxA[3] - boxA[1] + 1)
+    boxBArea = (boxB[2] - boxB[0] + 1) * (boxB[3] - boxB[1] + 1)
+
+    # compute the intersection over union by taking the intersection area and dividing it by union area
+    iou = interArea / float(boxAArea + boxBArea - interArea)
+
+    return iou
+
+
 def compute_size_ratio(objects, src_frame_idx, src_bbox_idx, dst_frame_idx, dst_bbox_idx):
     boxA = objects[src_frame_idx][src_bbox_idx]['dimension']
     boxB = objects[dst_frame_idx][dst_bbox_idx]['dimension']
@@ -96,8 +170,22 @@ def compute_size_ratio(objects, src_frame_idx, src_bbox_idx, dst_frame_idx, dst_
 
     # compute the scale of the bigger box over smaller box
     scale = boxBArea / boxAArea if boxAArea > boxBArea else boxAArea / boxBArea
-
     return scale
+
+
+def compute_scale_and_IoU(objects, src_frame_idx, src_bbox_idx, dst_frame_idx, dst_bbox_idx):
+    boxA = objects[src_frame_idx][src_bbox_idx]['dimension']
+    boxB = objects[dst_frame_idx][dst_bbox_idx]['dimension']
+
+    # compute the area of both the prediction and ground-truth rectangles
+    boxAArea = (boxA[2] - boxA[0] + 1) * (boxA[3] - boxA[1] + 1)
+    boxBArea = (boxB[2] - boxB[0] + 1) * (boxB[3] - boxB[1] + 1)
+
+    scale = boxBArea / boxAArea if boxAArea > boxBArea else boxAArea / boxBArea
+
+    iou = compute_spatial_overlap(boxA, boxB, boxAArea, boxBArea)
+
+    return scale, iou
 
 
 def visualize_epipolar_geometry(scan_dir, objects, src_frame_idx, src_bbox_idx, epipolar_line_forward, dst_frame_idx,
@@ -167,7 +255,7 @@ def visualize_trajectory(scan_dir, objects, trajectory):
     plt.show()
 
 
-def pairwise_association(scan_dir, frame_ids, objects_index, objects, poses, K, MIN_scale=0.5,
+def pairwise_association(scan_dir, frame_ids, objects_index, objects, poses, K, MIN_scale=0.5, MIN_IoU=0.05,
                          to_visualize_epipolar=False,  to_visualize_traj=False):
     '''
     Get the continuous tracking for objects by checking the occurrence of one object in the pairwise frame.
@@ -178,6 +266,7 @@ def pairwise_association(scan_dir, frame_ids, objects_index, objects, poses, K, 
     :param poses: list of pose (camera extrinsic parameters) for each frame
     :param K: camera intrinsic parameter for this scan
     :param MIN_scale: the minimum size ratio between candidate bbox and the source bbox
+    :param MIN_IoU: the minimum overlap between candidate bbox and the source bbox
     :param to_debug: to visualize the tracking results during debug.
     :return: trajectories, list of (classname, trajectory), where trajectory is a list of (frame_idx, obj_idx)
     '''
@@ -222,7 +311,7 @@ def pairwise_association(scan_dir, frame_ids, objects_index, objects, poses, K, 
                                                                  dst_candidate_objs,
                                                                  poses, K,
                                                                  src_frame_idx, dst_frame_idx,
-                                                                 MIN_DIST=0.03)
+                                                                 MIN_SED=8100.0)
 
                 if forward_check_result == None:
                     objs_to_delete.append((src_frame_idx, src_bbox_idx))
@@ -238,7 +327,7 @@ def pairwise_association(scan_dir, frame_ids, objects_index, objects, poses, K, 
                                                                               objects[src_frame_idx],
                                                                               poses, K,
                                                                               dst_frame_idx, src_frame_idx,
-                                                                              MIN_DIST=0.03)
+                                                                              MIN_SED=8100.0)
 
                             if backward_check_result != None:
                                 ref_bbox_ids, epipolar_line_backward = backward_check_result
@@ -264,6 +353,7 @@ def pairwise_association(scan_dir, frame_ids, objects_index, objects, poses, K, 
             objects_index.remove(obj_to_delete)
 
         if len(trajectory) > 1:
+            #TODO: should we keep the single frame as a trajecory?
             trajectories.append((cur_classname, trajectory))
 
     if to_visualize_traj:
@@ -275,9 +365,9 @@ def pairwise_association(scan_dir, frame_ids, objects_index, objects, poses, K, 
 
 
 def exhaustive_association(scan_dir, trajectories, objects, poses, K, to_visualize_epipolar=False,
-                           to_visualize_traj=False):
+                           to_visualize_traj=False, MIN_SED=10000.0):
 
-    def _calc_algebraic_distance(src_obj_index, dst_obj_index):
+    def _calc_forward_backward_SED(src_obj_index, dst_obj_index):
         src_frame_idx = src_obj_index[0]
         src_bbox_idx = src_obj_index[1]
         dst_frame_idx = dst_obj_index[0]
@@ -286,23 +376,25 @@ def exhaustive_association(scan_dir, trajectories, objects, poses, K, to_visuali
         src_obj = objects[src_frame_idx][src_bbox_idx]
         dst_obj = objects[dst_frame_idx][dst_bbox_idx]
 
-        x = np.ones((3, 1))
-        x[:2, 0] = src_obj['center']
-        y = np.ones((1, 3))
-        y[0, :2] = dst_obj['center']
+        p_S = np.ones((3, 1))
+        p_S[:2, 0] = src_obj['center']
+        p_D = np.ones((3, 1))
+        p_D[:2, 0] = dst_obj['center']
 
-        forward_dist, forward_epipolar_line = algebraic_distance(poses, K, src_frame_idx, dst_frame_idx, x, y)
-        backward_dist, backward_epipolar_line = algebraic_distance(poses, K, dst_frame_idx, src_frame_idx,
-                                                                   y.transpose(), x.transpose())
+        forward_SED, forward_epipolar_line = symmetric_epipolar_distance(poses, K, src_frame_idx, dst_frame_idx,
+                                                                          p_S, p_D)
+        backward_SED, backward_epipolar_line = symmetric_epipolar_distance(poses, K, dst_frame_idx, src_frame_idx,
+                                                                            p_D, p_S)
+        SED = forward_SED if forward_SED >= backward_SED else backward_SED
 
-        if to_visualize_epipolar:
+        if to_visualize_epipolar and SED < MIN_SED:
             visualize_epipolar_geometry(scan_dir, objects, src_frame_idx, src_bbox_idx, forward_epipolar_line,
                                         dst_frame_idx, [dst_bbox_idx], dst_bbox_idx, backward_epipolar_line,
                                         [src_bbox_idx])
 
-        return (forward_dist + backward_dist)
+        return SED
 
-    def traj_pairwise_association(trajectories_to_link, MIN_DIST=0.06):
+    def traj_pairwise_association(trajectories_to_link):
 
         trajectories_linked = []
 
@@ -326,7 +418,7 @@ def exhaustive_association(scan_dir, trajectories, objects, poses, K, to_visuali
             # check the algebraic distance between the last object in src_traj and the first object in dst_traj
             src_obj_index = trajectories_to_link[a][-1] #<frame_idx, bbox_idx>
             dst_obj_index = trajectories_to_link[b][0]
-            M[(a, b)] = _calc_algebraic_distance(src_obj_index, dst_obj_index)
+            M[(a, b)] = _calc_forward_backward_SED(src_obj_index, dst_obj_index)
 
         # hierarchal search
         while M != {}:
@@ -335,7 +427,7 @@ def exhaustive_association(scan_dir, trajectories, objects, poses, K, to_visuali
 
             # if the distance is larger than the threshold, save the trajectories in M
             # elif the distance is less than the threshold, link the two trajectories
-            if sel_pair[1] > MIN_DIST: break
+            if sel_pair[1] > MIN_SED: break
 
             a, b = sel_pair[0]
 
@@ -474,7 +566,8 @@ def main(opt):
     for scan_idx, scan_name in enumerate(scan_name_list):
         print('-----------Process ({0}, {1})-----------'.format(scan_idx, scan_name))
         scan_dir = os.path.join(data_dir, scan_name)
-        valid_frame_ids_file = os.path.join(scan_dir, '{0}_validframes_18class.txt'.format(scan_name))
+        valid_frame_ids_file = os.path.join(scan_dir, '{0}_validframes_18class_{1}frameskip.txt'
+                                            .format(scan_name, opt.frame_skip))
         valid_frame_ids = [int(x.strip()) for x in open(valid_frame_ids_file).readlines()]
 
         process_one_scan(scan_dir, scan_name, valid_frame_ids)
@@ -485,7 +578,9 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--root_dir', default='/mnt/Data/Datasets/ScanNet_v2/', help='path to data')
-    parser.add_argument('--scan_id', default=None, help='specific scan id to download')
+    parser.add_argument('--scan_id', default='scene0463_01', help='specific scan id to download') #scene0463_01
+    parser.add_argument('--frame_skip', type=int, default=15,
+                        help='the number of frames to skip in extracting instance annotation images')
 
     opt = parser.parse_args()
 

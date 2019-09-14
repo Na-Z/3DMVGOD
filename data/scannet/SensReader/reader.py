@@ -14,12 +14,12 @@ parser = argparse.ArgumentParser()
 # data paths
 parser.add_argument('--filename', required=True, help='path to sens file to read')
 parser.add_argument('--output_path', required=True, help='path to output folder')
-parser.add_argument('--frame_skip', type=int, default=30,
+parser.add_argument('--frame_skip', type=int, default=15,
                     help='the number of frames to skip in extracting depth/color images')
 parser.add_argument('--export_depth_images', dest='export_depth_images', default=True)
-parser.add_argument('--export_color_images', dest='export_color_images', default=False)
-parser.add_argument('--export_poses', dest='export_poses', default=False)
-parser.add_argument('--export_intrinsics', dest='export_intrinsics', default=False)
+parser.add_argument('--export_color_images', dest='export_color_images', default=True)
+parser.add_argument('--export_poses', dest='export_poses', default=True)
+parser.add_argument('--export_intrinsics', dest='export_intrinsics', default=True)
 
 opt = parser.parse_args()
 print('-----------------------------')
