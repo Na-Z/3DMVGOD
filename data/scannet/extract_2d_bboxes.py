@@ -138,16 +138,16 @@ if __name__ == '__main__':
         if opt.to_save:
             bbox_dir = os.path.join(scan_path, 'bbox2d_18class')
             if not os.path.exists(bbox_dir): os.mkdir(bbox_dir)
-            valid_framesID_file = open(os.path.join(scan_path, '{0}_validframes_18class_{1}frameskip.txt'.
+            valid_frame_names_file = open(os.path.join(scan_path, '{0}_validframes_18class_{1}frameskip.txt'.
                                                                 format(scan_name, opt.frame_skip)), 'w')
         for i in range(num_frames):
-            frame_idx = opt.frame_skip * i
-            instance_img_path = os.path.join(scan_path, 'instance-filt', '{0}.png'.format(frame_idx))
+            frame_name = opt.frame_skip * i
+            instance_img_path = os.path.join(scan_path, 'instance-filt', '{0}.png'.format(frame_name))
             objects2d = extract_2dbbox_from_instance(instance_img_path, objectID2label, LABEL_MAP, TARGET_CLASS_NAMES,
                                                      colour_code,  visualize=opt.to_visu)
             if opt.to_save and len(objects2d) > 0:
                 # save 2D bboxes into file
-                scannet_utils.write_2Dbbox(bbox_dir, frame_idx, objects2d)
-                valid_framesID_file.write('%d\n' % frame_idx)
+                scannet_utils.write_2Dbbox(bbox_dir, frame_name, objects2d)
+                valid_frame_names_file.write('%d\n' % frame_name)
         if opt.to_save:
-            valid_framesID_file.close()
+            valid_frame_names_file.close()

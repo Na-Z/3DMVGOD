@@ -148,6 +148,19 @@ def read_depth_intrinsic(file_path):
     return depth_intrinsic
 
 
+def read_color2depth_extrinsic(file_path):
+    '''Read colorToDepthExtrinsics matrix'''
+    lines = open(file_path).readlines()
+    for line in lines:
+        if 'colorToDepthExtrinsics' in line:
+            color2depth_extrinsic = [float(x) \
+                                     for x in line.rstrip().strip('colorToDepthExtrinsics = ').split(' ')]
+            break
+    else:
+        return None
+    color2depth_extrinsic = np.array(color2depth_extrinsic).reshape((4, 4))
+    return color2depth_extrinsic
+
 
 def write_2Dbbox(save_dir, frame_idx, bbox2d):
     save_path = os.path.join(save_dir, '{0}_bbox.pkl'.format(frame_idx))

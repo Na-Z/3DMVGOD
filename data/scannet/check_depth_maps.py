@@ -79,21 +79,13 @@ if __name__ == '__main__':
         meta_file = os.path.join(scan_path, '{0}.txt'.format(scan_name))
         depth_intrinsic = scannet_utils.read_depth_intrinsic(meta_file)
         camera_intrinsic = scannet_utils.read_camera_intrinsic(meta_file)
-
-        # Load colorToDepthExtrinsics matrix
-        lines = open(meta_file).readlines()
-        for line in lines:
-            if 'colorToDepthExtrinsics' in line:
-                color2depth_extrinsic = [float(x) \
-                                     for x in line.rstrip().strip('colorToDepthExtrinsics = ').split(' ')]
-                break
-        color2depth_extrinsic = np.array(color2depth_extrinsic).reshape((4, 4))
+        color2depth_extrinsic = scannet_utils.read_color2depth_extrinsic(meta_file)
 
         num_frames = len(os.listdir(os.path.join(scan_path, 'color')))
         for i in range(num_frames):
-            frame_idx = opt.frame_skip * i
-            rgb_img_path = os.path.join(scan_path, 'color', '{0}.jpg'.format(frame_idx))
-            depth_img_path = os.path.join(scan_path, 'depth', '{0}.png'.format(frame_idx))
+            frame_name = opt.frame_skip * i
+            rgb_img_path = os.path.join(scan_path, 'color', '{0}.jpg'.format(frame_name))
+            depth_img_path = os.path.join(scan_path, 'depth', '{0}.png'.format(frame_name))
 
             depth_img = np.array(Image.open(depth_img_path))
             pts_camera = depth_to_point_cloud(depth_img, depth_intrinsic)
@@ -102,7 +94,7 @@ if __name__ == '__main__':
             pts_camera_ext = np.dot(pts_camera_ext, color2depth_extrinsic.transpose())
 
             ## the matrix in /pose/<frameid>.txt is to map the camera coord to world coord
-            camera_extrinsic_path = os.path.join(scan_path, 'pose', '{0}.txt'.format(frame_idx))
+            camera_extrinsic_path = os.path.join(scan_path, 'pose', '{0}.txt'.format(frame_name))
             camera_extrinsic = np.loadtxt(camera_extrinsic_path)  # 4*4
             # transform one frame from camera coordinate to world coordinate
             pts_world = np.dot(pts_camera_ext, camera_extrinsic.transpose())
