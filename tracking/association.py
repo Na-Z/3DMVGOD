@@ -11,6 +11,7 @@ from PIL import Image
 # matplotlib.use('TkAGG')
 from matplotlib import pyplot as plt
 import copy
+from scipy.spatial.transform import Rotation as Rot
 
 import data.scannet.scannet_utils as utils
 from config import cfg
@@ -108,7 +109,7 @@ def depth_to_point_cloud(depth_img, depth_intrinsic, bbox2d_dimension):
     return ptcloud
 
 
-def find_near_and_far_points(scan_dir, src_obj, K, p_S, shift_ratio=0.2):
+def find_near_and_far_points(scan_dir, src_obj, K, p_S, near_quantile=0.1, far_quantile=0.9):
     frame_name = src_obj['frame_name']
     dimension = src_obj['dimension']
 
@@ -129,13 +130,11 @@ def find_near_and_far_points(scan_dir, src_obj, K, p_S, shift_ratio=0.2):
     if color2depth_extrinsic is not None:
         pts_camera_ext = np.dot(pts_camera_ext, color2depth_extrinsic.transpose())
 
-    z_near = np.amin(pts_camera_ext[:,2])
-    z_far = np.amax(pts_camera_ext[:,2])
-
-    dz = z_far - z_near
-    assert dz > 0
-    z_near = z_near + dz*shift_ratio
-    z_far = z_far - dz*shift_ratio
+    depths = pts_camera_ext[:,2]
+    # select the q-th quantile of the depth as the near/far, in order to eliminate the outliers
+    depths = np.sort(depths)
+    z_near = np.quantile(depths, near_quantile)
+    z_far = np.quantile(depths, far_quantile)
 
     pts = np.linalg.inv(K) @ p_S
     pts_near = pts * z_near
@@ -254,7 +253,7 @@ def point_to_line_distance(A, B, P):
     return D
 
 
-def check_epipolar_constraint(scan_dir, src_obj, dst_candidate_objs, poses, K, src_frame_idx, dst_frame_idx, MIN_DIST=10.0):
+def check_epipolar_constraint(scan_dir, src_obj, dst_candidate_objs, poses, K, src_frame_idx, dst_frame_idx, MIN_DIST):
 
     src_center = src_obj['center']
     p_S = np.ones((3,1))
@@ -399,8 +398,8 @@ def visualize_trajectory_in_videos(scan_dir, frame_names, objects, trajectories)
 
 
 
-def pairwise_association(scan_dir, frame_names, objects_index, objects, poses, K, MIN_scale=0.4,
-                         to_visualize_epipolar=False,  to_visualize_traj=False):
+def pairwise_association(scan_dir, frame_names, objects_index, objects, poses, K, MIN_scale=0.4, MIN_DIST=10,
+                         to_visualize_epipolar=False, to_visualize_traj=False):
     '''
     Get the continuous tracking for objects by checking the occurrence of one object in the pairwise frame.
     :param scan_dir: the path to the scan data
@@ -410,6 +409,7 @@ def pairwise_association(scan_dir, frame_names, objects_index, objects, poses, K
     :param poses: list of pose (camera extrinsic parameters) for each frame
     :param K: camera intrinsic parameter for this scan
     :param MIN_scale: the minimum size ratio between candidate bbox and the source bbox
+    :param MIN_DIST: the minimum distance in checking epipolar constraint
     :param to_debug: to visualize the tracking results during debug.
     :return: trajectories, list of (classname, trajectory), where trajectory is a list of (frame_idx, obj_idx)
     '''
@@ -419,8 +419,14 @@ def pairwise_association(scan_dir, frame_names, objects_index, objects, poses, K
     while objects_index != []:
         cur_frame_idx = objects_index[0][0]
 
-        # if iterate to the last frame in this scan, end the loop
-        if cur_frame_idx == MAX_FRAME_IDX: break
+        # if iterate to the last frame in this scan, save all the objects in objects_index individually, end the loop
+        if cur_frame_idx == MAX_FRAME_IDX:
+            for (frame_idx, bbox_idx) in objects_index:
+                obj = objects[frame_idx][bbox_idx]
+                classname =  obj['classname']
+                trajectory = [(frame_idx, bbox_idx)]
+                trajectories.append((classname, trajectory))
+            break
 
         cur_bbox_idx = objects_index[0][1]
         print('\tTrajectory tracking for frame_{0}-Object{1}...'.format(cur_frame_idx, cur_bbox_idx))
@@ -441,7 +447,7 @@ def pairwise_association(scan_dir, frame_names, objects_index, objects, poses, K
             for dst_obj in objects[dst_frame_idx]:
                 # check if there is any object with the same classname as src_bbox..
                 if dst_obj['classname'] != cur_classname: continue
-                # check if the dst_obj is still in the object_index list
+                # check if the dst_obj is still in the object_index list, not be linked by other trajectory..
                 if (dst_frame_idx, dst_obj['bbox_id']) not in objects_index: continue
                 dst_candidate_objs.append(dst_obj)
 
@@ -451,9 +457,9 @@ def pairwise_association(scan_dir, frame_names, objects_index, objects, poses, K
                                                                  dst_candidate_objs,
                                                                  poses, K,
                                                                  src_frame_idx, dst_frame_idx,
-                                                                 MIN_DIST=10)
+                                                                 MIN_DIST)
 
-                if forward_check_result != None:
+                if forward_check_result is not None:
                     epipolar_line_segment_forward, dst_bbox_idx = forward_check_result
                     # check the size ratio between candidate bbox and the source bbox
                     scale = compute_size_ratio(objects, src_frame_idx, src_bbox_idx, dst_frame_idx, dst_bbox_idx)
@@ -463,9 +469,9 @@ def pairwise_association(scan_dir, frame_names, objects_index, objects, poses, K
                                                                           objects[src_frame_idx],
                                                                           poses, K,
                                                                           dst_frame_idx, src_frame_idx,
-                                                                          MIN_DIST=10)
+                                                                          MIN_DIST)
 
-                        if backward_check_result != None:
+                        if backward_check_result is not None:
                             epipolar_line_segment_backward, ref_bbox_idx = backward_check_result
 
                             if src_bbox_idx == ref_bbox_idx:
@@ -488,9 +494,8 @@ def pairwise_association(scan_dir, frame_names, objects_index, objects, poses, K
         for obj_to_delete in objs_to_delete:
             objects_index.remove(obj_to_delete)
 
-        if len(trajectory) > 1:
-            #TODO: should we keep the single frame as a trajecory?
-            trajectories.append((cur_classname, trajectory))
+        # we also keep the single frame as a trajecory
+        trajectories.append((cur_classname, trajectory))
 
     if to_visualize_traj:
         trajectories_to_show = []
@@ -503,8 +508,8 @@ def pairwise_association(scan_dir, frame_names, objects_index, objects, poses, K
 
 
 
-def exhaustive_association(scan_dir, trajectories, frame_names, objects, poses, K, to_visualize_epipolar=False,
-                           to_visualize_traj=False, MIN_DIST=200):
+def exhaustive_association(scan_dir, trajectories, frame_names, objects, poses, K, MIN_DIST=200, MAX_ANGLE=100,
+                           to_visualize_epipolar=False, to_visualize_traj=False):
 
     def _calc_forward_backward_DIST(src_obj_index, dst_obj_index):
         src_frame_idx = src_obj_index[0]
@@ -543,6 +548,48 @@ def exhaustive_association(scan_dir, trajectories, frame_names, objects, poses, 
 
         return dist
 
+
+    def relative_rotation_constraint(traj_a, traj_b):
+        '''
+        :param traj_a: list of (frame_idx, bbox_idx) pairs in one trajectory
+        :param traj_b: list of (frame_idx, bbox_idx) pairs in another trajectory
+        :return:
+        '''
+        # get the relative rotation matrix from the last frame in traj_a to the first frame in traj_b
+        frameid_a = traj_a[-1][0]
+        frameid_b = traj_b[0][0]
+
+        R_relative = (np.linalg.inv(poses[frameid_b]) @ poses[frameid_a])[:3,:3]
+        r = Rot.from_dcm(R_relative)
+        # quat = r.as_quat()
+        # euler = r.as_euler('zyx')
+        ## compute the euler vector
+        ## (refer to https://en.wikipedia.org/wiki/Axis%E2%80%93angle_representation#Rotation_vector)
+        rot_vec = r.as_rotvec()
+        angle = np.degrees(np.linalg.norm(rot_vec))
+        #print('rot_vec: {0}; \tangle:{1}'.format(rot_vec, angle))
+        if angle > MAX_ANGLE:
+            #visualize the relative rotation angle between two frames in trajectory pair
+            debug = False
+            if debug:
+                src_obj = objects[traj_a[-1][0]][traj_a[-1][1]]
+                src_img = cv2.imread(os.path.join(scan_dir, 'color', '{0}.jpg'.format(src_obj['frame_name'])))
+                src_img = cv2.cvtColor(src_img, cv2.COLOR_BGR2RGB)
+
+                dst_obj = objects[traj_b[0][0]][traj_b[0][1]]
+                dst_img = cv2.imread(os.path.join(scan_dir, 'color', '{0}.jpg'.format(dst_obj['frame_name'])))
+                dst_img = cv2.cvtColor(dst_img, cv2.COLOR_BGR2RGB)
+
+                plt.subplot(121), plt.imshow(src_img)
+                plt.subplot(122), plt.imshow(dst_img)
+                plt.gca().set_title(angle)
+                plt.show()
+
+            return False
+        else:
+            return True
+
+
     def traj_pairwise_association(trajectories_to_link):
 
         trajectories_linked = []
@@ -555,7 +602,7 @@ def exhaustive_association(scan_dir, trajectories, frame_names, objects, poses, 
             for b, traj_b in enumerate(trajectories_to_link):
                 if a == b: continue
                 frameids_b = set([t[0] for t in traj_b])
-                if frameids_a.isdisjoint(frameids_b):
+                if frameids_a.isdisjoint(frameids_b) and relative_rotation_constraint(traj_a, traj_b):
                     pairs.append((a,b))
 
         if pairs == []:
@@ -648,12 +695,19 @@ def exhaustive_association(scan_dir, trajectories, frame_names, objects, poses, 
             trajectories_linked = traj_pairwise_association(trajectories_to_link)
             full_trajectories.extend(trajectories_linked)
 
+    # filter out the trajectories only with one or two frame..
+    #TODO: filter out the bbox that lower than certain ratio of the average size of its trajectory or all the trajectories
+    full_trajectories_new = []
+    for full_trajectory in full_trajectories:
+        if len(full_trajectory) > 2:
+            full_trajectories_new.append(full_trajectory)
+
     if to_visualize_traj:
         visualize_trajectory_in_videos(scan_dir, frame_names, objects, full_trajectories)
         # for i, full_trajectory in enumerate(full_trajectories):
         #     visualize_trajectory(scan_dir, objects, full_trajectory)
 
-    return full_trajectories
+    return full_trajectories_new
 
 
 def process_one_scan(scan_dir, scan_name, valid_frame_names, min_ratio=10):
@@ -701,12 +755,12 @@ def process_one_scan(scan_dir, scan_name, valid_frame_names, min_ratio=10):
 
     print('[original frames] - {0}; [remaining frames] - {1}'.format(len(valid_frame_names), len(frame_names)))
 
-    trajectories = pairwise_association(scan_dir, frame_names, objects_index, objects, poses, K,
-                                        to_visualize_epipolar=False, to_visualize_traj=True)
+    trajectories = pairwise_association(scan_dir, frame_names, objects_index, objects, poses, K, MIN_scale=0.4,
+                                        MIN_DIST=100, to_visualize_epipolar=False, to_visualize_traj=True)
     print('Got {0} trajectories via pairwise association'.format(len(trajectories)))
 
-    full_trajectories = exhaustive_association(scan_dir, trajectories, frame_names, objects, poses, K,
-                                               to_visualize_epipolar=False, to_visualize_traj=True)
+    full_trajectories = exhaustive_association(scan_dir, trajectories, frame_names, objects, poses, K, MIN_DIST=250,
+                                               MAX_ANGLE=110, to_visualize_epipolar=False, to_visualize_traj=True)
     print('Got {0} trajectories after exhaustive association'.format(len(full_trajectories)))
 
 
@@ -744,7 +798,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--root_dir', default='/mnt/Data/Datasets/ScanNet_v2/', help='path to data')
-    parser.add_argument('--scan_id', default=None, help='specific scan id to download') #scene0463_01
+    parser.add_argument('--scan_id', default=None, help='specific scan id to download') #scene0463_01, 'scene0130_00'
     parser.add_argument('--frame_skip', type=int, default=15,
                         help='the number of frames to skip in extracting instance annotation images')
 
