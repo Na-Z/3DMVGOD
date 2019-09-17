@@ -10,6 +10,7 @@ from PIL import Image
 # import matplotlib
 # matplotlib.use('TkAGG')
 from matplotlib import pyplot as plt
+import copy
 
 import data.scannet.scannet_utils as utils
 from config import cfg
@@ -585,6 +586,9 @@ def exhaustive_association(scan_dir, trajectories, frame_names, objects, poses, 
             new_traj.extend(trajectories_to_link[b])
             trajectories_to_link.append(new_traj)
 
+            ##make sure the trajectory across frames
+            assert len(set(new_traj)) == len(new_traj)
+
             #delete (a,j), (i,b), (b,a) from M
             keys_to_delete = []
             for key in M.keys():
@@ -598,18 +602,30 @@ def exhaustive_association(scan_dir, trajectories, frame_names, objects, poses, 
                 trajectories_linked.append(new_traj)
                 break
 
-            # update (b,j) to (ab, j) and (i,a) to (i, ab)
+            # update (b,j) to (ab, j) and (i,a) to (i, ab)... if the frameids in i-th trajectory or j-th trajectory
+            # conflicts with the frameids in ab-th trajectory, delete (i,a) or (b,j) from M...
             new_id = len(trajectories_to_link)-1
-            for key in M.keys():
-                if a in key:
-                    M[(key[0], new_id)] = M.pop(key)
-                elif b in key:
-                    M[(new_id, key[1])] = M.pop(key)
+            keys_to_check = copy.deepcopy(list(M.keys()))
+            frameids_new = set([t[0] for t in new_traj])
+            for key in keys_to_check:
+                if a in list(key):
+                    frameids_to_check = set([t[0] for t in trajectories_to_link[key[0]]])
+                    if frameids_new.isdisjoint(frameids_to_check):
+                        M[(key[0], new_id)] = M.pop(key)
+                    else:
+                        M.pop(key)
+                elif b in list(key):
+                    frameids_to_check = set([t[0] for t in trajectories_to_link[key[1]]])
+                    if frameids_new.isdisjoint(frameids_to_check):
+                        M[(new_id, key[1])] = M.pop(key)
+                    else:
+                        M.pop(key)
 
         for (i,j) in M.keys():
-            if trajectories_to_link[i] in trajectories_linked or trajectories_to_link[j] in trajectories_linked: continue
-            trajectories_linked.append(trajectories_to_link[i])
-            trajectories_linked.append(trajectories_to_link[j])
+            if trajectories_to_link[i] not in trajectories_linked:
+                trajectories_linked.append(trajectories_to_link[i])
+            if trajectories_to_link[j] not in trajectories_linked:
+                trajectories_linked.append(trajectories_to_link[j])
 
         return trajectories_linked
 
