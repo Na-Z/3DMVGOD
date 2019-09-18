@@ -350,7 +350,7 @@ def visualize_trajectory(scan_dir, objects, trajectory):
                            (int(obj['dimension'][2]), int(obj['dimension'][3])),
                             (0, 255, 0), 15)
         cv2.putText(img, '%d %s' % (obj['instance_id'], obj['classname']),
-                    (max(int(obj['dimension'][0]), 15), max(int(obj['dimension'][1]), 15)),
+                    (max(int(obj['dimension'][0]), 15), max(int(obj['dimension'][1])+50, 15)),
                     cv2.FONT_HERSHEY_SIMPLEX, 5, (255, 0, 0), 5)
         plt.subplot(nrows, ncols, i+1), plt.imshow(img)
     plt.show()
@@ -378,7 +378,7 @@ def visualize_trajectory_in_videos(scan_dir, frame_names, objects, trajectories)
             cv2.rectangle(video[frame_idx], (int(obj['dimension'][0]), int(obj['dimension'][1])),
                           (int(obj['dimension'][2]), int(obj['dimension'][3])), color, 5)
             cv2.putText(video[frame_idx], '%d %s' % (idx, obj['classname']),
-                        (max(int(obj['dimension'][0]), 15), max(int(obj['dimension'][1]), 15)),
+                        (max(int(obj['dimension'][0]), 15), max(int(obj['dimension'][1])+50, 15)),
                         cv2.FONT_HERSHEY_SIMPLEX, 2, color, 2)
 
     # show video
@@ -394,8 +394,6 @@ def visualize_trajectory_in_videos(scan_dir, frame_names, objects, trajectories)
     ## write_video
     # out_path = os.path.join('./visualize/{0}.mp4'.format(scan_dir.split('/')[-1]))
     # write_video(video, 2, (cfg.SCANNET.IMAGE_WIDTH, cfg.SCANNET.IMAGE_HEIGHT), out_path)
-
-
 
 
 def pairwise_association(scan_dir, frame_names, objects_index, objects, poses, K, MIN_scale=0.4, MIN_DIST=10,

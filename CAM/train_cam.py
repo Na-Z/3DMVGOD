@@ -13,7 +13,7 @@ from tensorboardX import SummaryWriter
 
 from config import cfg
 import model
-from data_loader import MyRoILoader, MyImageLoader
+from data_loader import MyImageLoader #MyRoILoader
 
 parser = argparse.ArgumentParser('Train multi-class classification model for extracting CAM')
 parser.add_argument('--gpu_ids', default='[2]', help='The GPUs to do data parallel')
@@ -23,16 +23,17 @@ parser.add_argument('--classes', type=int, default=18, help='number of target cl
 parser.add_argument('--input_size', type=int, default='224', help='the size of input images')
 
 parser.add_argument('--model_name', type=str, default='ResNet50', help='name of model, options:[VGG19, ResNet50]')
-parser.add_argument('--pretrained', type=bool, default=False, help='If pre-train the model on ImageNet')
+parser.add_argument('--pretrained', type=bool, default=True, help='If pre-train the model on ImageNet')
 
+parser.add_argument('--mAP_threshold', type=float, default=0.7, help='The mAP threshold ot save the checkpoint')
 parser.add_argument('--checkpoint_path', type=str, default=None, help='The path to the checkpoint')
 parser.add_argument('--nThreads', default=10, type=int, help='# threads for loading data')
 parser.add_argument('--batch_size', type=int, default=64, help='Batch Size during training')
-parser.add_argument('--max_epoch', type=int, default=200, help='Epoch to run [default: 100]')
-parser.add_argument('--learning_rate', type=float, default=0.001, help='Initial learning rate [default: 0.001]')
-parser.add_argument('--weight_decay', type=float, default=0.0001, help='weight decay value for optimizer [default: 0]')
-parser.add_argument('--decay_step', type=int, default=50, help='Decay step (epoch) for lr decay [default: 20]')
-parser.add_argument('--decay_rate', type=float, default=0.5, help='Decay rate for lr decay [default: 0.5]')
+parser.add_argument('--max_epoch', type=int, default=20, help='Epoch to run [default: 100]')
+parser.add_argument('--learning_rate', type=float, default=0.0001, help='Initial learning rate [default: 0.001]')
+parser.add_argument('--weight_decay', type=float, default=0.00001, help='weight decay value for optimizer [default: 0]')
+parser.add_argument('--decay_step', type=int, default=5, help='Decay step (epoch) for lr decay [default: 20]')
+parser.add_argument('--decay_rate', type=float, default=0.7, help='Decay rate for lr decay [default: 0.5]')
 opt = parser.parse_args()
 
 args = vars(opt)
@@ -66,10 +67,10 @@ def evaluate(pred, gt, n_class):
 if __name__ == '__main__':
 
     print('Loading data...')
-    trainset = MyRoILoader(opt.root_dir, 'train', opt.classes, opt.input_size)
+    trainset = MyImageLoader(opt.root_dir, 'train', opt.classes, opt.input_size)
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=opt.batch_size, shuffle=True,
                                               num_workers=opt.nThreads,  drop_last=True)
-    validset = MyRoILoader(opt.root_dir, 'valid', opt.classes, opt.input_size)
+    validset = MyImageLoader(opt.root_dir, 'valid', opt.classes, opt.input_size)
     validloader = torch.utils.data.DataLoader(validset, batch_size=opt.batch_size, shuffle=False,
                                               num_workers=opt.nThreads,  drop_last=True)
 
@@ -149,11 +150,9 @@ if __name__ == '__main__':
                 writer.add_scalar('valid/mAP', mAP, n_iter)
                 writer.add_text('AP on valid', '{}'.format(ap), epoch+1)
 
-                if mAP > best_mAP:
-                    best_mAP = mAP
-                    if best_mAP > 0.4:
-                        model.save_net(net, save_model_dir, '%s_%d_%.5f' %(opt.model_name, epoch+1, mAP), GPU_ID)
-                        print('\t\tmAP>0.4, saving model...')
+                if mAP > opt.mAP_threshold:
+                    model.save_net(net, save_model_dir, '%s_%d_%.5f' %(opt.model_name, epoch+1, mAP), GPU_ID)
+                    print('\t\tmAP > {0}, saving model...'.format(opt.mAP_threshold))
 
         # reduce learning rate
         if (epoch+1) % opt.decay_step == 0:

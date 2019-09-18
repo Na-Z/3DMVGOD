@@ -1,54 +1,12 @@
 import os
-import random
 import numpy as np
 import cv2
 from PIL import Image
-import json
-from zipfile import ZipFile
 import matplotlib.pyplot as plt
 from mayavi import mlab
-from vtk_visualizer.plot3d import *
-from vtk_visualizer import get_vtk_control
 
 import scannet_utils
 from config import cfg
-
-
-def depth_to_point_cloud(depth_img, depth_intrinsic):
-    '''
-    Transform a depth image into a point cloud with one point for each
-    pixel in the image, using the camera transform for a camera
-    centred at cx, cy with field of view fx, fy.
-
-    depth_image is a 2-D ndarray with shape (rows, cols) containing
-    depths from 1 to 254 inclusive. The result is a 3-D array with
-    shape (rows, cols, 3). Pixels with invalid depth in the input have
-    NaN for the z-coordinate in the result.
-
-    :param depth_img: np.ndarray, size (480*640)
-           depth_intrinsic: np.ndarray, shape (4*3)
-            [[fx, 0,  mx, 0]
-             [0,  fy, my, 0]
-             [0,  0,  1,  0]]
-
-    '''
-    rows, cols = depth_img.shape
-    fx = depth_intrinsic[0,0]
-    fy = depth_intrinsic[1,1]
-    mx = depth_intrinsic[0,2]
-    my = depth_intrinsic[1,2]
-    c, r = np.meshgrid(np.arange(cols), np.arange(rows), sparse=True)
-    valid = (depth_img > 0)
-    z = np.where(valid, depth_img / 1000.0, np.nan)
-    x = np.where(valid, z * (c - mx) / fx, 0)
-    y = np.where(valid, z * (r - my) / fy, 0)
-
-    pts = np.dstack((x, y, z)).reshape(-1, 3)
-
-    ptcloud = pts[~np.isnan(pts[:,2]), :]
-
-    return ptcloud
-
 
 
 if __name__ == '__main__':
@@ -57,13 +15,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('Check the reprojection from 3D to 2D images')
     parser.add_argument('--data_dir', type=str, default='/mnt/Data/Datasets/ScanNet_v2/scans/',
                         help='The path to annotations')
-    parser.add_argument('--frame_skip', type=int, default=30,
-                        help='the number of frames to skip in extracting instance annotation images')
 
     opt = parser.parse_args()
 
-    # SCAN_NAMES = [line.rstrip() for line in open('/mnt/Data/Datasets/ScanNet_v1/sceneid_sort.txt')]
-    SCAN_NAMES = ['scene0000_00']
+    SCAN_NAMES = [line.rstrip() for line in open('/mnt/Data/Datasets/ScanNet_v1/sceneid_sort.txt')]
 
     for scan_id, scan_name in enumerate(SCAN_NAMES):
         print('====== Process {0}-th scan [{1}] ======'.format(scan_id, scan_name))
@@ -82,13 +37,15 @@ if __name__ == '__main__':
         color2depth_extrinsic = scannet_utils.read_color2depth_extrinsic(meta_file)
 
         num_frames = len(os.listdir(os.path.join(scan_path, 'color')))
+
         for i in range(num_frames):
-            frame_name = opt.frame_skip * i
+
+            frame_name = cfg.SCANNET.FRAME_SKIP * i
             rgb_img_path = os.path.join(scan_path, 'color', '{0}.jpg'.format(frame_name))
             depth_img_path = os.path.join(scan_path, 'depth', '{0}.png'.format(frame_name))
 
             depth_img = np.array(Image.open(depth_img_path))
-            pts_camera = depth_to_point_cloud(depth_img, depth_intrinsic)
+            pts_camera = scannet_utils.depth_to_point_cloud(depth_img, depth_intrinsic)
             pts_camera_ext = np.ones((pts_camera.shape[0], 4))
             pts_camera_ext[:, 0:3] = pts_camera[:, 0:3]
             pts_camera_ext = np.dot(pts_camera_ext, color2depth_extrinsic.transpose())
