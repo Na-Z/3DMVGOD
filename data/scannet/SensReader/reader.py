@@ -6,7 +6,6 @@ Modified by Zhao Na, 28 Aug 2019
 
 import argparse
 import os, sys
-from config import cfg
 
 from SensorData import SensorData
 
@@ -18,7 +17,7 @@ parser.add_argument('--output_path', required=True, help='path to output folder'
 parser.add_argument('--export_depth_images', dest='export_depth_images', default=True)
 parser.add_argument('--export_color_images', dest='export_color_images', default=True)
 parser.add_argument('--export_poses', dest='export_poses', default=True)
-parser.add_argument('--export_intrinsics', dest='export_intrinsics', default=True)
+parser.add_argument('--export_intrinsics', dest='export_intrinsics', default=False)
 
 opt = parser.parse_args()
 print('-----------------------------')
@@ -34,11 +33,11 @@ def main():
   sd = SensorData(opt.filename)
   sys.stdout.write('loaded!\n')
   if opt.export_depth_images:
-    sd.export_depth_images(os.path.join(opt.output_path, 'depth'), frame_skip=cfg.SCANNET.FRAME_SKIP)
+    sd.export_depth_images(os.path.join(opt.output_path, 'depth'), frame_skip=1)
   if opt.export_color_images:
-    sd.export_color_images(os.path.join(opt.output_path, 'color'), frame_skip=cfg.SCANNET.FRAME_SKIP)
+    sd.export_color_images(os.path.join(opt.output_path, 'color'), frame_skip=1)
   if opt.export_poses:
-    sd.export_poses(os.path.join(opt.output_path, 'pose'), frame_skip=cfg.SCANNET.FRAME_SKIP)
+    sd.export_poses(os.path.join(opt.output_path, 'pose'), frame_skip=1)
   if opt.export_intrinsics:
     sd.export_intrinsics(os.path.join(opt.output_path, 'intrinsic'))
 

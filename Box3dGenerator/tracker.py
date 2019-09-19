@@ -374,16 +374,24 @@ def exhaustive_association(scan_dir, trajectories, frame_names, objects, poses, 
         p_D[:2, 0] = dst_obj['center']
 
         # epipolar_line_segment_forward
-        A, B = compute_epipolar_line_segment(scan_dir, src_obj, poses, K, src_frame_idx,
+        forward_epipolar_line_segment = compute_epipolar_line_segment(scan_dir, src_obj, poses, K, src_frame_idx,
                                                                       dst_frame_idx, p_S)
+        if forward_epipolar_line_segment is not None:
+            A, B = forward_epipolar_line_segment
+        else:
+            return None
         if A[0] < 0 or A[0] > cfg.SCANNET.IMAGE_WIDTH or A[1] < 0 or A[1] > cfg.SCANNET.IMAGE_HEIGHT: return 1000000
         if B[0] < 0 or B[0] > cfg.SCANNET.IMAGE_WIDTH or B[1] < 0 or B[1] > cfg.SCANNET.IMAGE_HEIGHT: return 1000000
 
         forward_dist = point_to_line_distance(A, B, p_D)
 
         # epipolar_line_segment_backward
-        C, D = compute_epipolar_line_segment(scan_dir, dst_obj, poses, K, dst_frame_idx,
+        backward_epipolar_line_segment = compute_epipolar_line_segment(scan_dir, dst_obj, poses, K, dst_frame_idx,
                                                                        src_frame_idx, p_D)
+        if backward_epipolar_line_segment is not None:
+            C, D = backward_epipolar_line_segment
+        else:
+            return None
         backward_dist = point_to_line_distance(C, D, p_S)
 
         # dist = forward_dist if forward_dist >= backward_dist else backward_dist
@@ -447,9 +455,11 @@ def exhaustive_association(scan_dir, trajectories, frame_names, objects, poses, 
             # check the algebraic distance between the last object in src_traj and the first object in dst_traj
             src_obj_index = trajectories_to_link[a][-1] #<frame_idx, bbox_idx>
             dst_obj_index = trajectories_to_link[b][0]
-            M[(a, b)] = _calc_forward_backward_DIST(src_obj_index, dst_obj_index)
+            dist = _calc_forward_backward_DIST(src_obj_index, dst_obj_index)
+            if dist is not None:
+                M[(a, b)] = dist
 
-        # hierarchal search
+                # hierarchal search
         while M != {}:
             #select the pair with shortest distance
             sel_pair = sorted(M.items(), key=lambda i:i[1])[0]
@@ -538,15 +548,15 @@ def exhaustive_association(scan_dir, trajectories, frame_names, objects, poses, 
     if to_visualize_traj:
         # visualize via video
         visualize_trajectory_in_videos(scan_dir, frame_names, objects, full_trajectories_new)
-        # #visualize via images
+        #visualize via images
         # for i, full_trajectory in enumerate(full_trajectories):
         #     visualize_trajectory(scan_dir, objects, full_trajectory)
 
     return full_trajectories_new
 
 
-def tracking(scan_dir, scan_name, valid_frame_names, min_ratio=10, pairwise_min_scale=0.4, pairwise_min_dist=100,
-             visu_pairwise_epipolar=False, visu_pairwise_traj=True, exhaustive_min_dist=125, exhaustive_max_angle=110,
+def tracking(scan_dir, scan_name, valid_frame_names, min_ratio=10, pairwise_min_scale=0.4, pairwise_min_dist=50,
+             visu_pairwise_epipolar=False, visu_pairwise_traj=True, exhaustive_min_dist=100, exhaustive_max_angle=110,
              visu_exhaustive_epipolar=False, visu_exhaustive_traj=True, visu_exhaustive_rotation=False):
     meta_file = os.path.join(scan_dir, '{0}.txt'.format(scan_name))
     K = utils.read_camera_intrinsic(meta_file)[:,:3] #(3,3)

@@ -11,8 +11,8 @@ from Box3dGenerator.visualizer import *
 def _calc_boundary_points(depth_img, depth_intrinsic, color2depth_extrinsic, camera2world_extrinsic, bbox2d_dimension,
                           near_thr=0.1, far_thr=5):
     '''
-    calculate the six (right, left, bottom, top, near, far) boundary points
-    of the truncated frustum based on the 2D bbox corner points of color image
+    calculate the six (right, left, bottom, top, near, far) boundary values of the truncated frustum
+     along x, y, z axis based on the 2D bbox corner points of color image
     '''
     xmin, ymin, xmax, ymax = utils._rescale_bbox_dim(bbox2d_dimension)
 
@@ -44,13 +44,11 @@ def _calc_boundary_points(depth_img, depth_intrinsic, color2depth_extrinsic, cam
     b = pts_lb_world[0, 1]
     r = pts_rt_world[0, 0]
     t = pts_rt_world[0, 1]
-    n = min(pts_lb_world[0, 2], pts_rt_world[0, 2])
-    f = max(pts_lb_world[0, 2], pts_rt_world[0, 2])
 
     # check the n and f with the pre-defined thresholds, choose the proper one
-    #TODO: use original z_near and z_far to compute frustums intersection
-    n = min(n, near_thr)
-    f = max(f, far_thr)
+    #TODO: directly use the near and far thresholds
+    n = min(near_thr, pts_lb_world[0, 2], pts_rt_world[0, 2])
+    f = max(far_thr, pts_lb_world[0, 2], pts_rt_world[0, 2])
 
     return r, l, b, t, f, n
 
@@ -76,6 +74,14 @@ def _construct_projection_matrix(r, l, b, t, f, n):
 
     return M
 
+def normalize_plane(p_planes):
+    n = p_planes.shape[0]
+    for i in range(n):
+        mag = np.sqrt(p_planes[i,0]**2 + p_planes[i,1]**2 + p_planes[i,2]**2)
+        p_planes[i, :] /= mag
+
+    return p_planes
+
 
 def _calc_inequalities_coefficients(M):
     '''
@@ -89,40 +95,42 @@ def _calc_inequalities_coefficients(M):
     p_planes = np.zeros((6,4))
 
     # left clipping plane
-    p_planes[0, 0] = M[0, 3] + M[0, 0]
-    p_planes[0, 1] = M[1, 3] + M[1, 0]
-    p_planes[0, 2] = M[2, 3] + M[2, 0]
-    p_planes[0, 3] = M[3, 3] + M[3, 0]
+    p_planes[0, 0] = M[3, 0] + M[0, 0]
+    p_planes[0, 1] = M[3, 1] + M[0, 1]
+    p_planes[0, 2] = M[3, 2] + M[0, 2]
+    p_planes[0, 3] = M[3, 3] + M[0, 3]
 
     # right clipping plane
-    p_planes[1, 0] = M[0, 3] - M[0, 0]
-    p_planes[1, 1] = M[1, 3] - M[1, 0]
-    p_planes[1, 2] = M[2, 3] - M[2, 0]
-    p_planes[1, 3] = M[3, 3] - M[3, 0]
+    p_planes[1, 0] = M[3, 0] - M[0, 0]
+    p_planes[1, 1] = M[3, 1] - M[0, 1]
+    p_planes[1, 2] = M[2, 3] - M[0, 2]
+    p_planes[1, 3] = M[3, 3] - M[0, 3]
 
     # bottom clipping plane
-    p_planes[2, 0] = M[0, 3] + M[0, 1]
-    p_planes[2, 1] = M[1, 3] + M[1, 1]
-    p_planes[2, 2] = M[2, 3] + M[2, 1]
-    p_planes[2, 3] = M[3, 3] + M[3, 1]
+    p_planes[2, 0] = M[3, 0] + M[1, 0]
+    p_planes[2, 1] = M[3, 1] + M[1, 1]
+    p_planes[2, 2] = M[3, 2] + M[1, 2]
+    p_planes[2, 3] = M[3, 3] + M[1, 3]
 
     # top clipping plane
-    p_planes[3, 0] = M[0, 3] - M[0, 1]
-    p_planes[3, 1] = M[1, 3] - M[1, 1]
-    p_planes[3, 2] = M[2, 3] - M[2, 1]
-    p_planes[3, 3] = M[3, 3] - M[3, 1]
+    p_planes[3, 0] = M[3, 0] - M[1, 0]
+    p_planes[3, 1] = M[3, 1] - M[1, 1]
+    p_planes[3, 2] = M[3, 2] - M[1, 2]
+    p_planes[3, 3] = M[3, 3] - M[1, 3]
 
     # near clipping plane
-    p_planes[4, 0] = M[0, 3] + M[0, 2]
-    p_planes[4, 1] = M[1, 3] + M[1, 2]
-    p_planes[4, 2] = M[2, 3] + M[2, 2]
-    p_planes[4, 3] = M[3, 3] + M[3, 2]
+    p_planes[5, 0] = M[3, 0] + M[2, 0]
+    p_planes[5, 1] = M[3, 1] + M[2, 1]
+    p_planes[5, 2] = M[3, 2] + M[2, 2]
+    p_planes[5, 3] = M[3, 3] + M[2, 3]
 
     # far clipping plane
-    p_planes[5, 0] = M[0, 3] - M[0, 2]
-    p_planes[5, 1] = M[1, 3] - M[1, 2]
-    p_planes[5, 2] = M[2, 3] - M[2, 2]
-    p_planes[5, 3] = M[3, 3] - M[3, 2]
+    p_planes[4, 0] = M[3, 0] - M[2, 0]
+    p_planes[4, 1] = M[3, 1] - M[2, 1]
+    p_planes[4, 2] = M[3, 2] - M[2, 2]
+    p_planes[4, 3] = M[3, 3] - M[2, 3]
+
+    p_planes = normalize_plane(p_planes)
 
     return p_planes
 
@@ -169,14 +177,16 @@ def compute_min_max_bounds_in_one_track(scan_dir, objects, trajectory):
         CAM = CAMs[:, :, cfg.SCANNET.CLASS2INDEX[classname]]
 
         frustum_ptcloud = utils.cropped_depth_to_point_cloud_with_cam(depth_img, depth_intrinsic, dimension, CAM)
-        # visualize frustum point cloud
-        visualize_bbox(scan_dir, obj)
-        visualize_frustum_ptcloud_with_cam(frustum_ptcloud)
+        # #visualize frustum point cloud
+        #visualize_bbox(scan_dir, obj)
+        #visualize_frustum_ptcloud_with_cam(frustum_ptcloud)
         frustum_ptclouds.append(frustum_ptcloud)
 
         # generate frustum clipping planes
         frustum_plane = extract_frustum_plane(dimension, depth_img, depth_intrinsic, camera2world_extrinsic,
                                               color2depth_extrinsic)
+        # visualize frustum plan
+        visualize_one_frustum(frustum_plane)
         frustum_planes.append(frustum_plane)
 
     #TODO: use activated frustum ptcloud to filter out invalid object..
