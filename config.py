@@ -37,8 +37,10 @@ __C.SUNRGBD.MIN_NUM_FOV_POINTS = 512
 
 # config on ScanNet
 __C.SCANNET = EasyDict()
-__C.SCANNET.CLASSES = ['cabinet', 'bed', 'chair', 'sofa', 'table', 'door', 'window', 'bookshelf', 'picture', 'counter',
-                       'desk', 'curtain', 'refridgerator', 'shower curtain', 'toilet', 'sink', 'bathtub', 'otherfurniture']
+# __C.SCANNET.CLASSES = ['cabinet', 'bed', 'chair', 'sofa', 'table', 'door', 'window', 'bookshelf', 'picture', 'counter',
+#                        'desk', 'curtain', 'refridgerator', 'shower curtain', 'toilet', 'sink', 'bathtub', 'otherfurniture']
+__C.SCANNET.CLASSES = ['cabinet', 'bed', 'chair', 'sofa', 'table', 'bookshelf', 'counter', 'desk', 'refridgerator',
+                       'toilet', 'sink', 'bathtub', 'otherfurniture']
 __C.SCANNET.CLASS2INDEX = {cls:idx for idx, cls in enumerate(__C.SCANNET.CLASSES)}
 __C.SCANNET.IMAGE_WIDTH = 1296
 __C.SCANNET.IMAGE_HEIGHT = 968

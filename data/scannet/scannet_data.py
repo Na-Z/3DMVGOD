@@ -23,8 +23,7 @@ class scannet_object(object):
         self.all_valid_frames_list = []
         for scan_name in self.scan_name_list:
             scan_dir = os.path.join(self.data_dir, scan_name)
-            valid_frame_ids_file = os.path.join(scan_dir, '{0}_validframes_18class_{1}frameskip.txt'.
-                                                format(scan_name, cfg.SCANNET.FRAME_SKIP))
+            valid_frame_ids_file = os.path.join(scan_dir, '{0}_validframes_13class.txt'.format(scan_name))
             valid_frame_ids = [int(x.strip()) for x in open(valid_frame_ids_file).readlines()]
             for frame_id in valid_frame_ids:
                 self.all_valid_frames_list.append((scan_name, frame_id))
@@ -35,7 +34,7 @@ class scannet_object(object):
         return cv2.imread(img_file)
 
     def get_gt_2DBBox(self, scan_name, frame_id):
-        label_file = os.path.join(self.data_dir, scan_name, 'bbox2d_18class', '{0}_bbox.pkl'.format(frame_id))
+        label_file = os.path.join(self.data_dir, scan_name, 'bbox2d_13class', '{0}_bbox.pkl'.format(frame_id))
         assert os.path.exists(label_file)
         return utils.read_2Dbbox(label_file)
 

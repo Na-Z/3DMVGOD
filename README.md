@@ -27,10 +27,14 @@ For [SUNRGBD](http://rgbd.cs.princeton.edu/data/SUNRGBD.zip), we download from o
 ### Data Preparation for ScanNet dataset
 First we extract all the RGB-D frames (color and depth frames), camera intrinsics and extrinsics files from 
 compressed binary file (<scene_id>.sens) by running ```./data/scannet/SensReader/bash_reader.py``` 
+This step will generate four subfolders (i.e., 'color', 'depth', 'pose', 'intrinsic') in each scan folder.
 
 Then we extract valid frames from each scene by checking the camera extrinsic files and instance segmentation
  annotations. 
-Simply run  ```./data/scannet/select_frames.py```
+Simply run  ```./data/scannet/process_dataset.py```
+This step will generate two subfolders (i.e., 'instance-filt', 'bbox2d_*class') and one file (i.e., 
+'<sceneid>_validframes_*class.txt') in each scan folder. Also, it will generate two files (i.e., 
+'log_process_data.txt', 'sceneid_valid.txt') in the root data dir..
 
 
 ### Train mult-label classifier to extract CAM

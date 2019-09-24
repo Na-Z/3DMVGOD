@@ -556,7 +556,7 @@ def exhaustive_association(scan_dir, trajectories, frame_names, objects, poses, 
     return full_trajectories_new
 
 
-def tracking(scan_dir, scan_name, valid_frame_names, min_ratio=10, pairwise_min_scale=0.4, pairwise_min_dist=50,
+def tracking(scan_dir, scan_name, valid_frame_names, min_ratio=9, pairwise_min_scale=0.4, pairwise_min_dist=50,
              visu_pairwise_epipolar=False, visu_pairwise_traj=True, exhaustive_min_dist=100, exhaustive_max_angle=110,
              visu_exhaustive_epipolar=False, visu_exhaustive_traj=True, visu_exhaustive_rotation=False):
     meta_file = os.path.join(scan_dir, '{0}.txt'.format(scan_name))
@@ -576,7 +576,7 @@ def tracking(scan_dir, scan_name, valid_frame_names, min_ratio=10, pairwise_min_
         label_file = os.path.join(scan_dir, 'bbox2d_18class', '{0}_bbox.pkl'.format(frame_name))
         bboxes2d = utils.read_2Dbbox(label_file)  # list of dictionaries
 
-        ## filter out some invalid bbox (e.g., the width or height or area of bbox is lower than a threshold..)i
+        ## filter out some invalid bbox (e.g., the width or height or area of bbox is lower than a threshold..)
 	    # TODO: consider prior size of each class to filter out relatively small bbox..
         new_bboxes2d = []
         bbox_idx = 0
