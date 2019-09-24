@@ -27,6 +27,11 @@ def main(opt):
             scan_name_list = [opt.scan_id]
         else:
             print('ERROR: Invalid scan id: ' + opt.scan_id)
+    else:
+        # shuffle the list for debugging
+        #TODO: remove this after debugging
+        import random
+        random.shuffle(scan_name_list)
 
     for scan_idx, scan_name in enumerate(scan_name_list):
         print('-----------Process ({0}, {1})-----------'.format(scan_idx, scan_name))
@@ -43,7 +48,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--root_dir', default='/mnt/Data/Datasets/ScanNet_v2/', help='path to data')
-    parser.add_argument('--scan_id', default='scene0191_00', help='specific scan id to download')
+    parser.add_argument('--scan_id', default='scene0067_02', help='specific scan id to download') #'scene0067_02'
 
     opt = parser.parse_args()
 

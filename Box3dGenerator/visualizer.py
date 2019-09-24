@@ -23,6 +23,7 @@ def visualize_bbox(scan_dir, obj):
     cv2.putText(img, '%d %s' % (obj['instance_id'], obj['classname']),
                 (max(int(obj['dimension'][0]), 15), max(int(obj['dimension'][1]) + 50, 15)),
                 cv2.FONT_HERSHEY_SIMPLEX, 5, (255, 0, 0), 5)
+    cv2.circle(img, (648,484),5,(0,0,255))
     cv2.imshow('image', img)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
@@ -184,7 +185,7 @@ def visualize_one_frustum(p_planes):
 
     shrink = vtk.vtkShrinkPolyData()
     shrink.SetInputConnection(frustumSource.GetOutputPort())
-    shrink.SetShrinkFactor(.95)
+    shrink.SetShrinkFactor(1.)
 
     mapper = vtk.vtkPolyDataMapper()
     mapper.SetInputConnection(shrink.GetOutputPort())
@@ -206,11 +207,22 @@ def visualize_one_frustum(p_planes):
 
     # an interactor
     renderWindowInteractor = vtk.vtkRenderWindowInteractor()
+    renderWindowInteractor.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
     renderWindowInteractor.SetRenderWindow(renderWindow)
 
     # add the actors to the scene
     renderer.AddActor(actor)
     renderer.SetBackground(colors.GetColor3d("Silver"))
+
+    transform = vtk.vtkTransform()
+    transform.Translate(0,0,0)
+    axes = vtk.vtkAxesActor()
+    #  The axes are positioned with a user transform
+    axes.SetAxisLabels(1)
+    axes.SetUserTransform(transform)
+    axes.AxisLabelsOff()
+    axes.SetTotalLength(3.0, 3.0, 3.0)
+    renderer.AddActor(axes)
 
     # Position the camera so that we can see the frustum
     renderer.GetActiveCamera().SetPosition(1, 0, 0)
@@ -226,50 +238,27 @@ def visualize_one_frustum(p_planes):
     # begin mouse interaction
     renderWindowInteractor.Start()
 
-    # frustumSource = vtk.vtkFrustumSource()
-    # frustumSource.SetPlanes(planes)
-    # frustumSource.Update()
-    #
-    # frustum = frustumSource.GetOutput()
-    #
-    # mapper = vtk.vtkPolyDataMapper()
-    # if vtk.VTK_MAJOR_VERSION <= 5:
-    #     mapper.SetInput(frustum)
-    # else:
-    #     mapper.SetInputData(frustum)
-    #
-    # actor = vtk.vtkActor()
-    # actor.SetMapper(mapper)
-    #
-    # # a renderer and render window
-    # renderer = vtk.vtkRenderer()
-    # renderWindow = vtk.vtk.vtkRenderWindow()
-    # renderWindow.AddRenderer(renderer)
-    #
-    # # an interactor
-    # renderWindowInteractor = vtk.vtkRenderWindowInteractor()
-    # renderWindowInteractor.SetRenderWindow(renderWindow)
-    #
-    # # add the actors to the scene
-    # renderer.AddActor(actor)
-    # renderer.SetBackground(.2, .1, .3)  # Background color dark purple
-    #
-    # # render an image (lights and cameras are created automatically)
-    # renderWindow.Render()
-    #
-    # # begin mouse interaction
-    # renderWindowInteractor.Start()
 
+def visualize_one_frustum_plus_points(p_planes, frustum_ptcloud):
 
-def test_visualize_frustum():
     colors = vtk.vtkNamedColors()
 
-    camera = vtk.vtkCamera()
-    camera.SetClippingRange(0.1, 4)
-    planesArray = [0] * 24
+    # set a renderer and a render window
+    renderer = vtk.vtkRenderer()
+    renderer.SetBackground(colors.GetColor3d("Silver"))
+    renderWindow = vtk.vtkRenderWindow()
+    renderWindow.SetSize(600, 600)
+    renderWindow.SetWindowName("Frustum Intersection")
+    renderWindow.AddRenderer(renderer)
 
-    camera.GetFrustumPlanes(0.5, planesArray) # the first argument is the width/height aspect ratio for the viewpoint
+    # an interactor
+    renderWindowInteractor = vtk.vtkRenderWindowInteractor()
+    renderWindowInteractor.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
+    renderWindowInteractor.SetRenderWindow(renderWindow)
 
+    mappers = list()
+
+    planesArray = list(p_planes.flatten())
     planes = vtk.vtkPlanes()
     planes.SetFrustumPlanes(planesArray)
 
@@ -279,33 +268,68 @@ def test_visualize_frustum():
 
     shrink = vtk.vtkShrinkPolyData()
     shrink.SetInputConnection(frustumSource.GetOutputPort())
-    shrink.SetShrinkFactor(1.0)
+    shrink.SetShrinkFactor(1.)
 
-    mapper = vtk.vtkPolyDataMapper()
-    mapper.SetInputConnection(shrink.GetOutputPort())
+    mappers.append(vtk.vtkPolyDataMapper())
+    mappers[-1].SetInputConnection(shrink.GetOutputPort())
 
-    back = vtk.vtkProperty()
-    back.SetColor(colors.GetColor3d("Tomato"))
+    # assin color to ptcloud (n,4)
+    cm = colormap.get_cmap('inferno')
+    color_mapper = colormap.ScalarMappable(
+        norm=matplotlib.colors.Normalize(vmin=0, vmax=1, clip=True), cmap=cm)
+    color = color_mapper.to_rgba(frustum_ptcloud[:, 3])[:, :3] * 255
+    ptcloud = np.hstack((frustum_ptcloud[:,0:3], color))
 
-    actor = vtk.vtkActor()
-    actor.SetMapper(mapper)
-    actor.GetProperty().EdgeVisibilityOn()
-    actor.GetProperty().SetColor(colors.GetColor3d("Banana"))
-    actor.SetBackfaceProperty(back)
+    # Create the geometry of a point (the coordinate)
+    points = vtk.vtkPoints()
+    # Create the topology of the point (a vertex)
+    vertices = vtk.vtkCellArray()
+    # Setup colors
+    Colors = vtk.vtkUnsignedCharArray()
+    Colors.SetNumberOfComponents(3)
+    Colors.SetName("Colors")
+    # Add points
+    for i in range(0, len(ptcloud)):
+        p = ptcloud[i, :3]
+        id = points.InsertNextPoint(p)
+        vertices.InsertNextCell(1)
+        vertices.InsertCellPoint(id)
+        Colors.InsertNextTuple3(ptcloud[i,3], ptcloud[i,4], ptcloud[i,5])
+    point = vtk.vtkPolyData()
+    # Set the points and vertices we created as the geometry and topology of the polydata
+    point.SetPoints(points)
+    point.SetVerts(vertices)
+    point.GetPointData().SetScalars(Colors)
+    point.Modified()
 
-    # a renderer and render window
-    renderer = vtk.vtkRenderer()
-    renderWindow = vtk.vtkRenderWindow()
-    renderWindow.SetWindowName("Frustum")
-    renderWindow.AddRenderer(renderer)
+    mappers.append(vtk.vtkPolyDataMapper())
+    mappers[-1].SetInputData(point)
 
-    # an interactor
-    renderWindowInteractor = vtk.vtkRenderWindowInteractor()
-    renderWindowInteractor.SetRenderWindow(renderWindow)
+    for mapper in mappers:
 
-    # add the actors to the scene
-    renderer.AddActor(actor)
-    renderer.SetBackground(colors.GetColor3d("Silver"))
+        actor = vtk.vtkActor()
+        actor.SetMapper(mapper)
+        actor.GetProperty().EdgeVisibilityOn()
+        actor.GetProperty().SetColor(colors.GetColor3d("Banana"))
+        actor.GetProperty().SetOpacity(.5)
+
+        renderer.AddActor(actor)
+
+    transform = vtk.vtkTransform()
+    transform.Translate(0,0,0)
+    axes = vtk.vtkAxesActor()
+    #  The axes are positioned with a user transform
+    axes.SetAxisLabels(1)
+    axes.SetUserTransform(transform)
+    axes.AxisLabelsOff()
+    axes.SetTotalLength(3.0, 3.0, 3.0)
+    renderer.AddActor(axes)
+
+    renderer.SetUseDepthPeeling(1)
+    renderer.SetOcclusionRatio(0.1)
+    renderer.SetMaximumNumberOfPeels(100)
+    renderWindow.SetMultiSamples(0)
+    renderWindow.SetAlphaBitPlanes(1)
 
     # Position the camera so that we can see the frustum
     renderer.GetActiveCamera().SetPosition(1, 0, 0)
@@ -321,5 +345,265 @@ def test_visualize_frustum():
     # begin mouse interaction
     renderWindowInteractor.Start()
 
-if __name__ == '__main__':
-    test_visualize_frustum()
+
+
+def visualize_n_frustums(p_planes_list):
+
+    colors = vtk.vtkNamedColors()
+
+    # set a renderer and a render window
+    renderer = vtk.vtkRenderer()
+    renderer.SetBackground(colors.GetColor3d("Silver"))
+    renderWindow = vtk.vtkRenderWindow()
+    renderWindow.SetSize(600, 600)
+    renderWindow.SetWindowName("Frustum Intersection")
+    renderWindow.AddRenderer(renderer)
+
+    # an interactor
+    renderWindowInteractor = vtk.vtkRenderWindowInteractor()
+    renderWindowInteractor.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
+    renderWindowInteractor.SetRenderWindow(renderWindow)
+
+    for i, p_planes in enumerate(p_planes_list):
+
+        planesArray = list(p_planes.flatten())
+        planes = vtk.vtkPlanes()
+        planes.SetFrustumPlanes(planesArray)
+
+        frustum = vtk.vtkFrustumSource()
+        frustum.ShowLinesOff()
+        frustum.SetPlanes(planes)
+
+        shrink = vtk.vtkShrinkPolyData()
+        shrink.SetInputConnection(frustum.GetOutputPort())
+        shrink.SetShrinkFactor(1.)
+
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputConnection(shrink.GetOutputPort())
+
+        actor = vtk.vtkActor()
+        actor.SetMapper(mapper)
+        actor.GetProperty().EdgeVisibilityOn()
+        actor.GetProperty().SetColor(colors.GetColor3d("Banana"))
+        actor.GetProperty().SetOpacity(.5)
+
+        renderer.AddActor(actor)
+
+    transform = vtk.vtkTransform()
+    transform.Translate(0,0,0)
+    axes = vtk.vtkAxesActor()
+    #  The axes are positioned with a user transform
+    axes.SetAxisLabels(1)
+    axes.SetUserTransform(transform)
+    axes.AxisLabelsOff()
+    axes.SetTotalLength(3.0, 3.0, 3.0)
+    renderer.AddActor(axes)
+
+    renderer.SetUseDepthPeeling(1)
+    renderer.SetOcclusionRatio(0.1)
+    renderer.SetMaximumNumberOfPeels(100)
+    renderWindow.SetMultiSamples(0)
+    renderWindow.SetAlphaBitPlanes(1)
+
+    # Position the camera so that we can see the frustum
+    renderer.GetActiveCamera().SetPosition(1, 0, 0)
+    renderer.GetActiveCamera().SetFocalPoint(0, 0, 0)
+    renderer.GetActiveCamera().SetViewUp(0, 1, 0)
+    renderer.GetActiveCamera().Azimuth(30)
+    renderer.GetActiveCamera().Elevation(30)
+    renderer.ResetCamera()
+
+    # render an image (lights and cameras are created automatically)
+    renderWindow.Render()
+
+    # begin mouse interaction
+    renderWindowInteractor.Start()
+
+
+def visualize_frustums_plus_interior_point(p_planes_list, interior_point):
+
+    colors = vtk.vtkNamedColors()
+
+    # set a renderer and a render window
+    renderer = vtk.vtkRenderer()
+    renderer.SetBackground(colors.GetColor3d("Silver"))
+    renderWindow = vtk.vtkRenderWindow()
+    renderWindow.SetSize(600, 600)
+    renderWindow.SetWindowName("Frustum Intersection plus interior point")
+    renderWindow.AddRenderer(renderer)
+
+    # an interactor
+    renderWindowInteractor = vtk.vtkRenderWindowInteractor()
+    renderWindowInteractor.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
+    renderWindowInteractor.SetRenderWindow(renderWindow)
+
+    for i, p_planes in enumerate(p_planes_list):
+
+        planesArray = list(p_planes.flatten())
+        planes = vtk.vtkPlanes()
+        planes.SetFrustumPlanes(planesArray)
+
+        frustum = vtk.vtkFrustumSource()
+        frustum.ShowLinesOff()
+        frustum.SetPlanes(planes)
+
+        shrink = vtk.vtkShrinkPolyData()
+        shrink.SetInputConnection(frustum.GetOutputPort())
+        shrink.SetShrinkFactor(1.)
+
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputConnection(shrink.GetOutputPort())
+
+        actor = vtk.vtkActor()
+        actor.SetMapper(mapper)
+        actor.GetProperty().EdgeVisibilityOn()
+        if i % 2 == 0:
+            actor.GetProperty().SetColor(colors.GetColor3d("Tomato"))
+        else:
+            actor.GetProperty().SetColor(colors.GetColor3d("Banana"))
+        actor.GetProperty().SetOpacity(.5)
+
+        renderer.AddActor(actor)
+
+    # create a sphere for the interior point
+    sphereSource = vtk.vtkSphereSource()
+    sphereSource.SetCenter(interior_point[0], interior_point[1], interior_point[2])
+    sphereSource.SetRadius(.05)
+    # Make the surface smooth.
+    sphereSource.SetPhiResolution(100)
+    sphereSource.SetThetaResolution(100)
+
+    mapper = vtk.vtkPolyDataMapper()
+    mapper.SetInputConnection(sphereSource.GetOutputPort())
+
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+    actor.GetProperty().SetColor(colors.GetColor3d("DarkGreen"))
+
+    renderer.AddActor(actor)
+
+    transform = vtk.vtkTransform()
+    transform.Translate(0,0,0)
+    axes = vtk.vtkAxesActor()
+    #  The axes are positioned with a user transform
+    axes.SetAxisLabels(1)
+    axes.SetUserTransform(transform)
+    axes.AxisLabelsOff()
+    axes.SetTotalLength(3.0, 3.0, 3.0)
+    renderer.AddActor(axes)
+
+    renderer.SetUseDepthPeeling(1)
+    renderer.SetOcclusionRatio(0.1)
+    renderer.SetMaximumNumberOfPeels(100)
+    renderWindow.SetMultiSamples(0)
+    renderWindow.SetAlphaBitPlanes(1)
+
+    # Position the camera so that we can see the frustum
+    renderer.GetActiveCamera().SetPosition(1, 0, 0)
+    renderer.GetActiveCamera().SetFocalPoint(0, 0, 0)
+    renderer.GetActiveCamera().SetViewUp(0, 1, 0)
+    renderer.GetActiveCamera().Azimuth(30)
+    renderer.GetActiveCamera().Elevation(30)
+    renderer.ResetCamera()
+
+    # render an image (lights and cameras are created automatically)
+    renderWindow.Render()
+
+    # begin mouse interaction
+    renderWindowInteractor.Start()
+
+
+
+def visualize_frustums_intersection(p_planes_list, intersections):
+
+    colors = vtk.vtkNamedColors()
+
+    # set a renderer and a render window
+    renderer = vtk.vtkRenderer()
+    renderer.SetBackground(colors.GetColor3d("Silver"))
+    renderWindow = vtk.vtkRenderWindow()
+    renderWindow.SetSize(600, 600)
+    renderWindow.SetWindowName("Frustum Intersection plus intersection points")
+    renderWindow.AddRenderer(renderer)
+
+    # an interactor
+    renderWindowInteractor = vtk.vtkRenderWindowInteractor()
+    renderWindowInteractor.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
+    renderWindowInteractor.SetRenderWindow(renderWindow)
+
+    for i, p_planes in enumerate(p_planes_list):
+
+        planesArray = list(p_planes.flatten())
+        planes = vtk.vtkPlanes()
+        planes.SetFrustumPlanes(planesArray)
+
+        frustum = vtk.vtkFrustumSource()
+        frustum.ShowLinesOff()
+        frustum.SetPlanes(planes)
+
+        shrink = vtk.vtkShrinkPolyData()
+        shrink.SetInputConnection(frustum.GetOutputPort())
+        shrink.SetShrinkFactor(1.)
+
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputConnection(shrink.GetOutputPort())
+
+        actor = vtk.vtkActor()
+        actor.SetMapper(mapper)
+        actor.GetProperty().EdgeVisibilityOn()
+        if i % 2 == 0:
+            actor.GetProperty().SetColor(colors.GetColor3d("Tomato"))
+            actor.GetProperty().SetOpacity(.5)
+        else:
+            actor.GetProperty().SetColor(colors.GetColor3d("Banana"))
+
+        renderer.AddActor(actor)
+
+    # create sphere for all the intersection point
+    for i in range(intersections.shape[0]):
+        point = intersections[i]
+        sphereSource = vtk.vtkSphereSource()
+        sphereSource.SetCenter(point[0], point[1], point[2])
+        sphereSource.SetRadius(.05)
+        # Make the surface smooth.
+        sphereSource.SetPhiResolution(100)
+        sphereSource.SetThetaResolution(100)
+
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputConnection(sphereSource.GetOutputPort())
+
+        actor = vtk.vtkActor()
+        actor.SetMapper(mapper)
+        actor.GetProperty().SetColor(colors.GetColor3d("DarkGreen"))
+
+        renderer.AddActor(actor)
+
+    transform = vtk.vtkTransform()
+    transform.Translate(0,0,0)
+    axes = vtk.vtkAxesActor()
+    #  The axes are positioned with a user transform
+    axes.SetAxisLabels(1)
+    axes.SetUserTransform(transform)
+    axes.AxisLabelsOff()
+    axes.SetTotalLength(3.0, 3.0, 3.0)
+    renderer.AddActor(axes)
+
+    renderer.SetUseDepthPeeling(1)
+    renderer.SetOcclusionRatio(0.1)
+    renderer.SetMaximumNumberOfPeels(100)
+    renderWindow.SetMultiSamples(0)
+    renderWindow.SetAlphaBitPlanes(1)
+
+    # Position the camera so that we can see the frustum
+    renderer.GetActiveCamera().SetPosition(1, 0, 0)
+    renderer.GetActiveCamera().SetFocalPoint(0, 0, 0)
+    renderer.GetActiveCamera().SetViewUp(0, 1, 0)
+    renderer.GetActiveCamera().Azimuth(30)
+    renderer.GetActiveCamera().Elevation(30)
+    renderer.ResetCamera()
+
+    # render an image (lights and cameras are created automatically)
+    renderWindow.Render()
+
+    # begin mouse interaction
+    renderWindowInteractor.Start()

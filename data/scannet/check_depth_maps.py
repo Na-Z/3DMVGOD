@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 from mayavi import mlab
 
 import scannet_utils
-from config import cfg
 
 
 if __name__ == '__main__':
@@ -18,7 +17,8 @@ if __name__ == '__main__':
 
     opt = parser.parse_args()
 
-    SCAN_NAMES = [line.rstrip() for line in open('/mnt/Data/Datasets/ScanNet_v1/sceneid_sort.txt')]
+    #SCAN_NAMES = [line.rstrip() for line in open('/mnt/Data/Datasets/ScanNet_v1/sceneid_sort.txt')]
+    SCAN_NAMES = ['scene0067_02']
 
     for scan_id, scan_name in enumerate(SCAN_NAMES):
         print('====== Process {0}-th scan [{1}] ======'.format(scan_id, scan_name))
@@ -36,25 +36,23 @@ if __name__ == '__main__':
         camera_intrinsic = scannet_utils.read_camera_intrinsic(meta_file)
         color2depth_extrinsic = scannet_utils.read_color2depth_extrinsic(meta_file)
 
-        num_frames = len(os.listdir(os.path.join(scan_path, 'color')))
+        valid_frame_names_file = os.path.join(scan_path, '{0}_validframes_18class_15frameskip.txt' .format(scan_name))
+        frame_names = [int(x.strip()) for x in open(valid_frame_names_file).readlines()]
 
-        for i in range(num_frames):
+        for i, frame_name in enumerate(frame_names):
 
-            frame_name = cfg.SCANNET.FRAME_SKIP * i
             rgb_img_path = os.path.join(scan_path, 'color', '{0}.jpg'.format(frame_name))
             depth_img_path = os.path.join(scan_path, 'depth', '{0}.png'.format(frame_name))
 
             depth_img = np.array(Image.open(depth_img_path))
-            pts_camera = scannet_utils.depth_to_point_cloud(depth_img, depth_intrinsic)
-            pts_camera_ext = np.ones((pts_camera.shape[0], 4))
-            pts_camera_ext[:, 0:3] = pts_camera[:, 0:3]
-            pts_camera_ext = np.dot(pts_camera_ext, color2depth_extrinsic.transpose())
+            pts_depth_camera = scannet_utils.depth_to_point_cloud(depth_img, depth_intrinsic)
+            pts_color_camera = scannet_utils.calibrate_camera_depth_to_color(pts_depth_camera, color2depth_extrinsic)
 
             ## the matrix in /pose/<frameid>.txt is to map the camera coord to world coord
             camera_extrinsic_path = os.path.join(scan_path, 'pose', '{0}.txt'.format(frame_name))
             camera_extrinsic = np.loadtxt(camera_extrinsic_path)  # 4*4
             # transform one frame from camera coordinate to world coordinate
-            pts_world = np.dot(pts_camera_ext, camera_extrinsic.transpose())
+            pts_world = pts_color_camera @ camera_extrinsic.transpose()
 
             # # transform whole scene from world coordinate to camera coordinate
             # ptcloud_camera = np.dot(ptcloud, np.linalg.inv(camera_extrinsic).transpose())  # N*4
@@ -66,7 +64,7 @@ if __name__ == '__main__':
             mlab.show()
 
             # transform from camera coordinate to pixel coordinate
-            pts_pixel = np.dot(pts_camera_ext, camera_intrinsic.transpose()) #N*3
+            pts_pixel = pts_color_camera @ camera_intrinsic.transpose() #N*3
             pts_pixel[:, 0] /= pts_pixel[:, 2]
             pts_pixel[:, 1] /= pts_pixel[:, 2]
             valid_mask = (pts_pixel[:,0] >= 0) & (pts_pixel[:,0]<=1296) & (pts_pixel[:,1]>=0)& (pts_pixel[:,1]<=968) \

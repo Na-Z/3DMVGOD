@@ -322,7 +322,7 @@ def project_image_to_camera(pts, K):
     '''
     fx, fy, mx, my = _parse_intrinsic_matrix(K)
 
-    z = pts[:, 2] / cfg.SCANNET.DEPTH_SCALING_FACTOR
+    z = pts[:, 2]
     x = z * (pts[:, 0] - mx) / fx
     y = z * (pts[:, 1] - my) / fy
 
@@ -346,7 +346,7 @@ def calibrate_camera_depth_to_color(pts, K):
     pts_color[:, 0:3] = pts[:, 0:3]
 
     if K is not None:
-        pts_color = np.dot(pts_color, K.transpose())
+        pts_color = pts_color @ np.linalg.inv(K)#.transpose()
 
     return pts_color
 

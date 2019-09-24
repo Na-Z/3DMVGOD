@@ -7,6 +7,7 @@ import random
 import numpy as np
 import cv2
 from PIL import Image
+from timeit import default_timer as timer
 from matplotlib import pyplot as plt
 import copy
 from scipy.spatial.transform import Rotation as Rot
@@ -603,14 +604,16 @@ def tracking(scan_dir, scan_name, valid_frame_names, min_ratio=10, pairwise_min_
 
     print('[original frames] - {0}; [remaining frames] - {1}'.format(len(valid_frame_names), len(frame_names)))
 
+    start = timer()
     trajectories = pairwise_association(scan_dir, frame_names, objects_index, objects, poses, K, pairwise_min_scale,
                                         pairwise_min_dist, visu_pairwise_epipolar, visu_pairwise_traj)
-    print('Got {0} trajectories via pairwise association'.format(len(trajectories)))
+    print('Got {0} trajectories via pairwise association, timer--{1}'.format(len(trajectories), timer()-start))
 
+    start = timer()
     full_trajectories = exhaustive_association(scan_dir, trajectories, frame_names, objects, poses, K,
                                                exhaustive_min_dist, exhaustive_max_angle, visu_exhaustive_epipolar,
                                                visu_exhaustive_traj, visu_exhaustive_rotation)
-    print('Got {0} trajectories after exhaustive association'.format(len(full_trajectories)))
+    print('Got {0} trajectories after exhaustive association, timer--{1}'.format(len(full_trajectories), timer()-start))
 
     return objects, full_trajectories
 

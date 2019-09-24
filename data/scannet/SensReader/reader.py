@@ -14,8 +14,8 @@ parser = argparse.ArgumentParser()
 # data paths
 parser.add_argument('--filename', required=True, help='path to sens file to read')
 parser.add_argument('--output_path', required=True, help='path to output folder')
-parser.add_argument('--export_depth_images', dest='export_depth_images', default=True)
-parser.add_argument('--export_color_images', dest='export_color_images', default=True)
+parser.add_argument('--export_depth_images', dest='export_depth_images', default=False)
+parser.add_argument('--export_color_images', dest='export_color_images', default=False)
 parser.add_argument('--export_poses', dest='export_poses', default=True)
 parser.add_argument('--export_intrinsics', dest='export_intrinsics', default=False)
 
