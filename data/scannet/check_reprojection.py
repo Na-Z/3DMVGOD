@@ -1,3 +1,7 @@
+'''Check the reprojection from 3D to 2D images
+Author: Zhao Na
+Date: Sep 2019
+'''
 import os
 import random
 import numpy as np
@@ -14,22 +18,15 @@ import scannet_utils
 
 
 if __name__ == '__main__':
-    import argparse
 
-    parser = argparse.ArgumentParser('Check the reprojection from 3D to 2D images')
-    parser.add_argument('--data_dir', type=str, default='/mnt/Data/Datasets/ScanNet_v2/scans/',
-                        help='The path to annotations')
-    parser.add_argument('--frame_skip', type=int, default=30,
-                        help='the number of frames to skip in extracting instance annotation images')
-
-    opt = parser.parse_args()
+    DATA_DIR = '/mnt/Data/Datasets/ScanNet_v2/scans/'
 
     # SCAN_NAMES = [line.rstrip() for line in open('/mnt/Data/Datasets/ScanNet_v1/sceneid_sort.txt')]
     SCAN_NAMES = ['scene0000_00']
 
     for scan_id, scan_name in enumerate(SCAN_NAMES):
         print('====== Process {0}-th scan [{1}] ======'.format(scan_id, scan_name))
-        scan_path = os.path.join(opt.data_dir, scan_name)
+        scan_path = os.path.join(DATA_DIR, scan_name)
 
         # parse the camera intrinsic file
         ## WHY the parameters from intrinsic_color.txt are different from those in scene_id.txt file??
@@ -61,9 +58,8 @@ if __name__ == '__main__':
         pts = np.ones((mesh_vertices.shape[0], 4))
         pts[:, 0:3] = mesh_vertices[:, 0:3]
 
-        num_frames = len(os.listdir(os.path.join(scan_path, 'color')))
-        for i in range(num_frames):
-            frame_idx = opt.frame_skip * i
+        framenames = os.listdir(os.path.join(scan_path, 'color'))
+        for frame_idx in framenames:
             instance_img_path = os.path.join(scan_path, 'instance-filt', '{0}.png'.format(frame_idx))
 
             ## the matrix in /pose/<frameid>.txt is to map the camera coord to world coord

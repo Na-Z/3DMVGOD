@@ -166,16 +166,16 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('Select valid frames and extract 2D bboxes')
     parser.add_argument('--data_dir', type=str, default='/mnt/Data/Datasets/ScanNet_v2/',
                         help='The path to annotations')
-    parser.add_argument('--scene_name', type=str, default=None, help='specific scene name to process')
+    parser.add_argument('--scene_name', type=str, default='scene0277_00', help='specific scene name to process')
     parser.add_argument('--min_frames', type=int, default=5, help='The minimum number of frames in one scene '
                                                                    'after removing invalid frames')
     parser.add_argument('--min_angle', type=float, default=5., help='The minimum rotation angle to filter frames')
     parser.add_argument('--min_ratio', type=int, default=15, help='The minimum ratio between the object dimension '
                                                                   'and the image dimension to filter objects')
-    parser.add_argument('--visu_validRot', type=bool, default=False, help='Visualize valid rotation between '
+    parser.add_argument('--visu_validRot', type=bool, default=True, help='Visualize valid rotation between '
                                                                             'two frames')
-    parser.add_argument('--visu_box2d', type=bool, default=False, help='Visualize 2D bboxes')
-    parser.add_argument('--save_box2d', type=bool, default=True, help='Save the 2D bbox into files..')
+    parser.add_argument('--visu_box2d', type=bool, default=True, help='Visualize 2D bboxes')
+    parser.add_argument('--save_box2d', type=bool, default=False, help='Save the 2D bbox into files..')
 
     opt = parser.parse_args()
 

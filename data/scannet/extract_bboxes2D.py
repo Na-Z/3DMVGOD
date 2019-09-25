@@ -101,8 +101,8 @@ def extract_bbox2d_from_instance(instance_img_path, objectID2label, LABEL_MAP, T
         rgb_img = cv2.imread(rgb_img)
         for obj in objects2d:
             # in case the xmin/ymin or xmax/ymax is at the border of the image..
-            cv2.rectangle(rgb_img, (max(int(obj['box2d'][0]), 5), max(int(obj['box2d'][1]), 5)),
-                                   (min(int(obj['box2d'][2]), w-5), min(int(obj['box2d'][3]), h-5)),
+            cv2.rectangle(rgb_img, (max(int(obj['box2d'][0]), 2), max(int(obj['box2d'][1]), 2)),
+                                   (min(int(obj['box2d'][2]), w-2), min(int(obj['box2d'][3]), h-2)),
                                    (0, 255, 0), 2)
             cv2.putText(rgb_img, '%d %s' % (obj['instance_id'], obj['classname']),
                         (max(int(obj['box2d'][0]), 15), max(int(obj['box2d'][1]), 15)),

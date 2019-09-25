@@ -7,25 +7,30 @@ from sklearn.metrics import average_precision_score
 import argparse
 import ast
 from datetime import datetime
+from collections import Counter
 
 import torch
 from tensorboardX import SummaryWriter
 
 from config import cfg
 import model
-from data_loader import MyImageLoader #MyRoILoader
+from focalloss import FocalLoss2
+from data_loader import MyImageLoader
 
 parser = argparse.ArgumentParser('Train multi-class classification model for extracting CAM')
 parser.add_argument('--gpu_ids', default='[2]', help='The GPUs to do data parallel')
 parser.add_argument('--root_dir', default='/mnt/Data/Datasets/ScanNet_v2/', help='path to data')
 parser.add_argument('--dataset', default='scannet', help='name of dataset')
-parser.add_argument('--classes', type=int, default=18, help='number of target classes')
-parser.add_argument('--input_size', type=int, default='224', help='the size of input images')
+parser.add_argument('--classes', type=int, default=13, help='number of target classes')
+parser.add_argument('--input_size', type=int, default='484', help='the size of input images') #484, rescale the image into half
 
 parser.add_argument('--model_name', type=str, default='ResNet50', help='name of model, options:[VGG19, ResNet50]')
-parser.add_argument('--pretrained', type=bool, default=True, help='If pre-train the model on ImageNet')
-
+parser.add_argument('--pretrained', action='store_true', help='If pre-train the model on ImageNet')
 parser.add_argument('--mAP_threshold', type=float, default=0.7, help='The mAP threshold ot save the checkpoint')
+parser.add_argument('--focalloss_gamma', type=float, default=0, help='Whether use focal loss (0: not use; >0 use, '
+                                                         'and the value is the setting of the gamma) [options:0.0-5.0]')
+parser.add_argument('--use_posweight', action='store_true', help='use pos_weight for loss function')
+
 parser.add_argument('--checkpoint_path', type=str, default=None, help='The path to the checkpoint')
 parser.add_argument('--nThreads', default=10, type=int, help='# threads for loading data')
 parser.add_argument('--batch_size', type=int, default=64, help='Batch Size during training')
@@ -45,6 +50,7 @@ print('-------------------- End --------------------')
 
 GPU_ID = ast.literal_eval(opt.gpu_ids)
 
+
 def evaluate(pred, gt, n_class):
     '''
     :param pred: numpy array (n_samples, n_class)
@@ -62,6 +68,26 @@ def evaluate(pred, gt, n_class):
     print('\tAP for all the classes:\n \t{0}'.format(ap))
     mAP = np.mean(np.array(ap))
     return ap, mAP
+
+
+def calculate_pos_weight(num_class, image_labels):
+        '''
+        compute the number the samples for each class across the dataset, and calculate pos_weight for loss function
+            For example, if a dataset contains 100 positive and 300 negative examples of a single class,
+            then pos_weight for the class should be equal to 300/100=3. The loss would act as if the
+            dataset contains 3×100=300 positive examples.
+        '''
+        class_distrib = Counter([c for img in image_labels for c in img])
+        print('\tClass distribution: ', class_distrib)
+        assert len(class_distrib) == num_class
+        dataset_size = len(image_labels)
+
+        pos_weight = np.zeros(num_class)
+        for class_name, num_samples in class_distrib.items():
+            pos_weight[cfg.SCANNET.CLASS2INDEX[class_name]] = (dataset_size - num_samples) / num_samples
+        print('\tPos_weight: ', pos_weight)
+
+        return pos_weight
 
 
 if __name__ == '__main__':
@@ -84,11 +110,41 @@ if __name__ == '__main__':
     else:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(GPU_ID[0])
 
-    # criterion = nn.CrossEntropyLoss().cuda()
-    criterion = torch.nn.BCEWithLogitsLoss().cuda()
+    # set loss function
+    if opt.use_posweight:
+        print('Input pos_weight into loss function...')
+        pos_weight = calculate_pos_weight(opt.classes, trainset.image_classes)
+        pos_weight = torch.from_numpy(pos_weight.astype(np.float32)).cuda()
+    else:
+        pos_weight = None
+
+    if opt.focalloss_gamma > 0:
+        criterion = FocalLoss2(gamma=opt.focalloss_gamma, pos_weight=pos_weight).cuda()
+    elif opt.focalloss_gamma == 0:
+        criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight).cuda()
+    else:
+        raise Exception('The gamma in FocalLoss must be non-negative!')
+
     cur_lr = opt.learning_rate
     optimizer = torch.optim.Adam(net.parameters(), lr=cur_lr, weight_decay=opt.weight_decay)
+
     writer = SummaryWriter()
+    # write log information
+    writer.add_text('config', 'Dataset: %s' % opt.dataset, 0)
+    writer.add_text('config', 'Model Name: %s' % opt.model_name, 0)
+    writer.add_text('config', 'Model Pretained: %s' % 1 if opt.pretrained else 0, 0)
+    writer.add_text('config', 'Resumed Checkpoint: %s' % opt.checkpoint_path, 0)
+    writer.add_text('config', 'Num classes: %d' % opt.classes, 0)
+    writer.add_text('config', 'Input Image Size: %d' % opt.input_size, 0)
+    writer.add_text('config', 'Encoder Parameters: %s' %opt.encoder_paras, 0)
+    writer.add_text('config', 'FocalLoss2 Gamma: %s' % opt.focalloss_gamma, 0)
+    writer.add_text('config', 'Use Pos_weight: %s' % 1 if opt.posweight_path else 0, 0)
+    writer.add_text('config', 'Maximum Epoch: %d' % opt.max_epoch, 0)
+    writer.add_text('config', 'Batch Size: %d' % opt.batch_size, 0)
+    writer.add_text('config', 'Learning Rate: %.5f' %opt.learning_rate, 0)
+    writer.add_text('config', 'Weight Decay: %.5f' %opt.weight_decay)
+    writer.add_text('config', 'Decay Step: %d' %opt.decay_step, 0)
+    writer.add_text('config', 'Decay Rate: %.2f' %opt.decay_rate, 0)
 
     save_model_dir = './checkpoints_' + datetime.now().strftime('%Y%m%d-%H-%M')
     if not os.path.exists(save_model_dir): os.mkdir(save_model_dir)

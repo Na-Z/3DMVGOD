@@ -4,6 +4,7 @@ from PIL import Image
 import copy
 from scipy.optimize import linprog
 from scipy.spatial import HalfspaceIntersection
+from scipy.spatial import ConvexHull
 
 from config import cfg
 import data.scannet.scannet_utils as utils
@@ -224,7 +225,11 @@ def compute_min_max_bounds_in_one_track(scan_dir, objects, trajectory):
 
     visualize_n_frustums(frustum_planes[:3])
     hs = frustum_planes_intersect([frustum_planes[0], frustum_planes[1]])
-    print(hs)
+    if hs is not None:
+        print(hs.dual_vertices)
+
+    # plot the convex hull
+
 
 
 
