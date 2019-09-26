@@ -13,15 +13,29 @@ from config import cfg
 
 class scannet_object(object):
     def __init__(self, root_dir, mode='train'):
+        self.root_dir = root_dir
         self.data_dir = os.path.join(root_dir, 'scans')
         self.mode = mode
-        split_file = os.path.join(root_dir, 'traintestsplit', 'scannetv2_{0}.txt'.format(mode))
-        self.scan_name_list = [x.strip() for x in open(split_file).readlines()]
+        self.get_valid_scans()
         self.get_valid_frames()
+        print('Mode-{0}: Scans-{1}, Frames-{2}'.format(self.mode, len(self.valid_scannames),
+                                                       len(self.all_valid_frames_list)))
+
+    def get_valid_scans(self):
+        validIDs_file = os.path.join(self.root_dir, 'sceneid_valid.txt')
+        all_validIDs = [x.strip() for x in open(validIDs_file).readlines()]
+
+        split_file = os.path.join(self.root_dir, 'traintestsplit', 'scannetv2_{0}.txt'.format(self.mode))
+        self.valid_scannames = []
+        with open(split_file, 'r') as f:
+            for line in f:
+                scan_name = line.strip()
+                if scan_name in all_validIDs:
+                    self.valid_scannames.append(scan_name)
 
     def get_valid_frames(self):
         self.all_valid_frames_list = []
-        for scan_name in self.scan_name_list:
+        for scan_name in self.valid_scannames:
             scan_dir = os.path.join(self.data_dir, scan_name)
             valid_frame_ids_file = os.path.join(scan_dir, '{0}_validframes_{1}class.txt'.format(
                                                             scan_name, len(cfg.SCANNET.CLASSES)))

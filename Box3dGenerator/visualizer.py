@@ -346,7 +346,6 @@ def visualize_one_frustum_plus_points(p_planes, frustum_ptcloud):
     renderWindowInteractor.Start()
 
 
-
 def visualize_n_frustums(p_planes_list):
 
     colors = vtk.vtkNamedColors()
@@ -388,6 +387,120 @@ def visualize_n_frustums(p_planes_list):
         actor.GetProperty().SetOpacity(.5)
 
         renderer.AddActor(actor)
+
+    transform = vtk.vtkTransform()
+    transform.Translate(0,0,0)
+    axes = vtk.vtkAxesActor()
+    #  The axes are positioned with a user transform
+    axes.SetAxisLabels(1)
+    axes.SetUserTransform(transform)
+    axes.AxisLabelsOff()
+    axes.SetTotalLength(3.0, 3.0, 3.0)
+    renderer.AddActor(axes)
+
+    renderer.SetUseDepthPeeling(1)
+    renderer.SetOcclusionRatio(0.1)
+    renderer.SetMaximumNumberOfPeels(100)
+    renderWindow.SetMultiSamples(0)
+    renderWindow.SetAlphaBitPlanes(1)
+
+    # Position the camera so that we can see the frustum
+    renderer.GetActiveCamera().SetPosition(1, 0, 0)
+    renderer.GetActiveCamera().SetFocalPoint(0, 0, 0)
+    renderer.GetActiveCamera().SetViewUp(0, 1, 0)
+    renderer.GetActiveCamera().Azimuth(30)
+    renderer.GetActiveCamera().Elevation(30)
+    renderer.ResetCamera()
+
+    # render an image (lights and cameras are created automatically)
+    renderWindow.Render()
+
+    # begin mouse interaction
+    renderWindowInteractor.Start()
+
+
+def visualize_n_frustums_plus_ptclouds(p_planes_list, frustum_ptcloud):
+    colors = vtk.vtkNamedColors()
+
+    # set a renderer and a render window
+    renderer = vtk.vtkRenderer()
+    renderer.SetBackground(colors.GetColor3d("Silver"))
+    renderWindow = vtk.vtkRenderWindow()
+    renderWindow.SetSize(600, 600)
+    renderWindow.SetWindowName("Frustum Intersection")
+    renderWindow.AddRenderer(renderer)
+
+    # an interactor
+    renderWindowInteractor = vtk.vtkRenderWindowInteractor()
+    renderWindowInteractor.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
+    renderWindowInteractor.SetRenderWindow(renderWindow)
+
+    # add n frustums
+    for i, p_planes in enumerate(p_planes_list):
+
+        planesArray = list(p_planes.flatten())
+        planes = vtk.vtkPlanes()
+        planes.SetFrustumPlanes(planesArray)
+
+        frustum = vtk.vtkFrustumSource()
+        frustum.ShowLinesOff()
+        frustum.SetPlanes(planes)
+
+        shrink = vtk.vtkShrinkPolyData()
+        shrink.SetInputConnection(frustum.GetOutputPort())
+        shrink.SetShrinkFactor(1.)
+
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputConnection(shrink.GetOutputPort())
+
+        actor = vtk.vtkActor()
+        actor.SetMapper(mapper)
+        actor.GetProperty().EdgeVisibilityOn()
+        actor.GetProperty().SetColor(colors.GetColor3d("Banana"))
+        actor.GetProperty().SetOpacity(.5)
+
+        renderer.AddActor(actor)
+
+    # add ptclouds
+    # assin color to ptcloud (n,4)
+    cm = colormap.get_cmap('inferno')
+    color_mapper = colormap.ScalarMappable(
+        norm=matplotlib.colors.Normalize(vmin=0, vmax=1, clip=True), cmap=cm)
+    color = color_mapper.to_rgba(frustum_ptcloud[:, 3])[:, :3] * 255
+    ptcloud = np.hstack((frustum_ptcloud[:,0:3], color))
+
+    # Create the geometry of a point (the coordinate)
+    points = vtk.vtkPoints()
+    # Create the topology of the point (a vertex)
+    vertices = vtk.vtkCellArray()
+    # Setup colors
+    Colors = vtk.vtkUnsignedCharArray()
+    Colors.SetNumberOfComponents(3)
+    Colors.SetName("Colors")
+    # Add points
+    for i in range(0, len(ptcloud)):
+        p = ptcloud[i, :3]
+        id = points.InsertNextPoint(p)
+        vertices.InsertNextCell(1)
+        vertices.InsertCellPoint(id)
+        Colors.InsertNextTuple3(ptcloud[i,3], ptcloud[i,4], ptcloud[i,5])
+    point = vtk.vtkPolyData()
+    # Set the points and vertices we created as the geometry and topology of the polydata
+    point.SetPoints(points)
+    point.SetVerts(vertices)
+    point.GetPointData().SetScalars(Colors)
+    point.Modified()
+
+    mapper = vtk.vtkPolyDataMapper()
+    mapper.SetInputData(point)
+
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+    actor.GetProperty().EdgeVisibilityOn()
+    actor.GetProperty().SetColor(colors.GetColor3d("Banana"))
+    actor.GetProperty().SetOpacity(.5)
+
+    renderer.AddActor(actor)
 
     transform = vtk.vtkTransform()
     transform.Translate(0,0,0)

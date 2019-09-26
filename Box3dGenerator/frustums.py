@@ -223,7 +223,9 @@ def compute_min_max_bounds_in_one_track(scan_dir, objects, trajectory):
 
     #TODO: use activated frustum ptcloud to filter out invalid object..
 
-    visualize_n_frustums(frustum_planes[:3])
+    # visualize_n_frustums(frustum_planes)
+    ptclouds = np.vstack(frustum_ptclouds)
+    visualize_n_frustums_plus_ptclouds(frustum_planes, ptclouds)
     hs = frustum_planes_intersect([frustum_planes[0], frustum_planes[1]])
     if hs is not None:
         print(hs.dual_vertices)

@@ -33,7 +33,7 @@ parser.add_argument('--use_posweight', action='store_true', help='use pos_weight
 
 parser.add_argument('--checkpoint_path', type=str, default=None, help='The path to the checkpoint')
 parser.add_argument('--nThreads', default=10, type=int, help='# threads for loading data')
-parser.add_argument('--batch_size', type=int, default=64, help='Batch Size during training')
+parser.add_argument('--batch_size', type=int, default=16, help='Batch Size during training')
 parser.add_argument('--max_epoch', type=int, default=20, help='Epoch to run [default: 100]')
 parser.add_argument('--learning_rate', type=float, default=0.0001, help='Initial learning rate [default: 0.001]')
 parser.add_argument('--weight_decay', type=float, default=0.00001, help='weight decay value for optimizer [default: 0]')
@@ -45,7 +45,7 @@ args = vars(opt)
 print('------------------ Options ------------------')
 for k, v in sorted(args.items()):
     print('{0}:{1}'.format(k,v))
-print('Class2Index:\n \t{0}'.format(cfg.SCANNET.CLASS2INDEX))
+print('Class2Index:\n {0}'.format(cfg.SCANNET.CLASS2INDEX))
 print('-------------------- End --------------------')
 
 GPU_ID = ast.literal_eval(opt.gpu_ids)
@@ -132,13 +132,12 @@ if __name__ == '__main__':
     # write log information
     writer.add_text('config', 'Dataset: %s' % opt.dataset, 0)
     writer.add_text('config', 'Model Name: %s' % opt.model_name, 0)
-    writer.add_text('config', 'Model Pretained: %s' % 1 if opt.pretrained else 0, 0)
+    writer.add_text('config', 'Model Pretained: %s' % str(opt.pretrained), 0)
     writer.add_text('config', 'Resumed Checkpoint: %s' % opt.checkpoint_path, 0)
     writer.add_text('config', 'Num classes: %d' % opt.classes, 0)
     writer.add_text('config', 'Input Image Size: %d' % opt.input_size, 0)
-    writer.add_text('config', 'Encoder Parameters: %s' %opt.encoder_paras, 0)
-    writer.add_text('config', 'FocalLoss2 Gamma: %s' % opt.focalloss_gamma, 0)
-    writer.add_text('config', 'Use Pos_weight: %s' % 1 if opt.posweight_path else 0, 0)
+    writer.add_text('config', 'FocalLoss2 Gamma: %f' % opt.focalloss_gamma, 0)
+    writer.add_text('config', 'Use Pos_weight: %s' % str(opt.use_posweight), 0)
     writer.add_text('config', 'Maximum Epoch: %d' % opt.max_epoch, 0)
     writer.add_text('config', 'Batch Size: %d' % opt.batch_size, 0)
     writer.add_text('config', 'Learning Rate: %.5f' %opt.learning_rate, 0)
@@ -167,7 +166,7 @@ if __name__ == '__main__':
 
             writer.add_scalar('train/loss', loss, n_iter)
 
-            if (i+1) % 100 == 0:
+            if (i+1) % 200 == 0:
                 print('Epoch [%d/%d], Iter [%d/%d], Loss: %.4f'
                       % (epoch+1, opt.max_epoch, i+1, len(trainloader), loss.item()))
 

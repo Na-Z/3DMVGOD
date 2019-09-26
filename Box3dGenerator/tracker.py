@@ -612,8 +612,10 @@ def tracking(scan_dir, scan_name, valid_frame_names, min_ratio=9, pairwise_min_s
 
     frame_idx = 0
     for frame_name in valid_frame_names:
-        label_file = os.path.join(scan_dir, 'bbox2d_{0}class'.format(len(cfg.SCANNET.CLASSES)),
-                                            '{0}_bbox.pkl'.format(frame_name))
+        #TODO: modify file name after new data comes
+        label_file = os.path.join(scan_dir, 'bbox2d_18class', '{0}_bbox.pkl'.format(frame_name))
+        # label_file = os.path.join(scan_dir, 'bbox2d_{0}class'.format(len(cfg.SCANNET.CLASSES)),
+        #                                     '{0}_bbox.pkl'.format(frame_name))
         bboxes2d = utils.read_2Dbbox(label_file)  # list of dictionaries
 
         ## filter out some invalid bbox (e.g., the width or height or area of bbox is lower than a threshold..)

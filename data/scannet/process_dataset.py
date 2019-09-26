@@ -10,12 +10,6 @@ import scannet_utils
 from config import cfg
 
 
-def log_string(LOG_FOUT, out_str):
-    LOG_FOUT.write(out_str + '\n')
-    LOG_FOUT.flush()
-    print(out_str)
-
-
 def visualize_rotation_angle(scan_dir, framename_a, framename_b, angle):
     '''visualize the relative rotation angle between two frames in trajectory pair'''
     src_img = cv2.imread(os.path.join(scan_dir, 'color', '{0}.jpg'.format(framename_a)))
@@ -84,35 +78,43 @@ def find_valid_rotation_angle(current_framenames, scan_path, min_angle=5, to_vis
     return selected_framenames
 
 
-def select_frames_for_one_scan(opt, fout, scan_path, objectID2label, LABEL_MAP, TARGET_CLASS_NAMES):
-    # Round1: check invalid pose file (discard those frames contain inf) e.g., scene0067_02/pose/133.txx
-    num_frames = len(os.listdir(os.path.join(scan_path, 'color')))
-    selected_framenames_r1 = []
-    for i in range(num_frames):
-        if find_valid_pose(scan_path, i):
-            selected_framenames_r1.append(i)
-    log_string(fout, '\tAfter filtering invalid pose files, remain {0} [origin {1}] frames'.format(
-                                                len(selected_framenames_r1), num_frames))
-
-    # Round2: check the 2D segmentation annotation (discard those frames without target classes)
-    selected_framenames_r2 = []
-    for frame_name in selected_framenames_r1:
-        if find_valid_objects(scan_path, frame_name, objectID2label, LABEL_MAP, TARGET_CLASS_NAMES):
-            selected_framenames_r2.append(frame_name)
-    log_string(fout, '\tAfter filtering frames without the interested objects, remain {0} [origin {1}] frames'.format(
-                                                len(selected_framenames_r2), len(selected_framenames_r1)))
-
-    # Round3: check the camera rotation angle between two consecutive frames
-    # (discard those frames with small view change)
-    selected_framenames_r3 = find_valid_rotation_angle(selected_framenames_r2, scan_path,
-                                                       opt.min_angle, opt.visu_validRot)
-    log_string(fout, '\tAfter filtering frames with small viewpoint change, remain {0} [origin {1}] frames'.format(
-                                                len(selected_framenames_r3), len(selected_framenames_r2)))
-
-    return selected_framenames_r3
-
-
 def main(opt):
+
+    def log_string(out_str):
+        LOG_FOUT.write(out_str + '\n')
+        LOG_FOUT.flush()
+        print(out_str)
+
+    def select_frames_for_one_scan(scan_path, objectID2label):
+        # Round1: check invalid pose file (discard those frames contain inf) e.g., scene0067_02/pose/133.txx
+        num_frames = len(os.listdir(os.path.join(scan_path, 'color')))
+        selected_framenames_r1 = []
+        for i in range(num_frames):
+            if find_valid_pose(scan_path, i):
+                selected_framenames_r1.append(i)
+        log_string('\tAfter filtering invalid pose files, remain {0} [origin {1}] frames'.format(
+                    len(selected_framenames_r1), num_frames))
+
+        # Round2: check the 2D segmentation annotation (discard those frames without target classes)
+        selected_framenames_r2 = []
+        for frame_name in selected_framenames_r1:
+            if find_valid_objects(scan_path, frame_name, objectID2label, LABEL_MAP, TARGET_CLASS_NAMES):
+                selected_framenames_r2.append(frame_name)
+        log_string('\tAfter filtering frames without the interested objects, remain {0} [origin {1}] frames'.format(
+                       len(selected_framenames_r2), len(selected_framenames_r1)))
+
+        # Round3: check the camera rotation angle between two consecutive frames
+        # (discard those frames with small view change)
+        selected_framenames_r3 = find_valid_rotation_angle(selected_framenames_r2, scan_path,
+                                                           opt.min_angle, opt.visu_validRot)
+        log_string('\tAfter filtering frames with small viewpoint change, remain {0} [origin {1}] frames'.format(
+                    len(selected_framenames_r3), len(selected_framenames_r2)))
+
+        return selected_framenames_r3
+
+    LOG_FOUT = open(os.path.join(opt.data_dir, 'log_process_data.txt'), 'w')
+    LOG_FOUT.write(str(opt) + '\n')
+
     # map original class name into nyu40 class ids, and extract target classes
     LABEL_MAP_FILE = os.path.join(opt.data_dir, 'scannetv2-labels.combined.tsv')
     LABEL_MAP = scannet_utils.read_label_mapping(LABEL_MAP_FILE, label_from='raw_category', label_to='nyu40class')
@@ -125,19 +127,15 @@ def main(opt):
     else:
         SCAN_NAMES = [opt.scene_name]
 
-    LOG_FOUT = open(os.path.join(opt.data_dir, 'log_process_data.txt'), 'w')
-    LOG_FOUT.write(str(opt) + '\n')
-
     valid_scannames = []
     for scan_id, scan_name in enumerate(SCAN_NAMES):
-        log_string(LOG_FOUT, '\n====== Process {0}-th scan [{1}] ======'.format(scan_id, scan_name))
+        log_string('\n====== Process {0}-th scan [{1}] ======'.format(scan_id, scan_name))
         scan_path = os.path.join(opt.data_dir, 'scans', scan_name)
 
         if not os.path.exists(os.path.join(scan_path, 'instance-filt')): unzip_instace_file(scan_path, scan_name)
         objectID2label, colour_code = get_objectID2label_and_color(scan_path, scan_name)
 
-        sel_framenames = select_frames_for_one_scan(opt, LOG_FOUT, scan_path, objectID2label, LABEL_MAP,
-                                                    TARGET_CLASS_NAMES)
+        sel_framenames = select_frames_for_one_scan(scan_path, objectID2label)
 
         if len(sel_framenames) >= opt.min_frames:
             # During 2D bboxes extraction, the boxes whose dimension ratio to the image dimension is less than
@@ -145,13 +143,13 @@ def main(opt):
             valid_framenames = extract_bbox2d_for_one_scan(scan_path, scan_name, sel_framenames, objectID2label,
                                                            LABEL_MAP, TARGET_CLASS_NAMES, colour_code,
                                                            opt.min_ratio, opt.visu_box2d, opt.save_box2d)
-            log_string(LOG_FOUT, '\tAfter filtering objects by checking its dimension ratio to the image dimension, '
+            log_string('\tAfter filtering objects by checking its dimension ratio to the image dimension, '
                                  'remain {0} [origin {1}] frames'.format(len(valid_framenames), len(sel_framenames)))
             if len(valid_framenames) > opt.min_frames:
                 valid_scannames.append(scan_name)
 
-    log_string(LOG_FOUT, '=======================================================')
-    log_string(LOG_FOUT, '{0} scans are kept after processing...'.format(len(valid_scannames)))
+    log_string('=======================================================')
+    log_string('{0} scans are kept after processing...'.format(len(valid_scannames)))
     # save the valid scans..
     with open(os.path.join(opt.data_dir, 'sceneid_valid.txt'), 'w') as f:
         for scanname in valid_scannames:
@@ -166,7 +164,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('Select valid frames and extract 2D bboxes')
     parser.add_argument('--data_dir', type=str, default='/mnt/Data/Datasets/ScanNet_v2/',
                         help='The path to annotations')
-    parser.add_argument('--scene_name', type=str, default='scene0277_00', help='specific scene name to process')
+    parser.add_argument('--scene_name', type=str, default=None, help='specific scene name to process')
     parser.add_argument('--min_frames', type=int, default=5, help='The minimum number of frames in one scene '
                                                                    'after removing invalid frames')
     parser.add_argument('--min_angle', type=float, default=5., help='The minimum rotation angle to filter frames')
@@ -174,7 +172,7 @@ if __name__ == '__main__':
                                                                   'and the image dimension to filter objects')
     parser.add_argument('--visu_validRot', type=bool, default=True, help='Visualize valid rotation between '
                                                                             'two frames')
-    parser.add_argument('--visu_box2d', type=bool, default=True, help='Visualize 2D bboxes')
+    parser.add_argument('--visu_box2d', type=bool, default=False, help='Visualize 2D bboxes')
     parser.add_argument('--save_box2d', type=bool, default=False, help='Save the 2D bbox into files..')
 
     opt = parser.parse_args()

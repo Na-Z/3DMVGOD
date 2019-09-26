@@ -31,7 +31,7 @@ This step will generate four subfolders (i.e., 'color', 'depth', 'pose', 'intrin
 
 Then we extract valid frames from each scene by checking the camera extrinsic files and instance segmentation
  annotations. 
-Simply run  ```./data/scannet/process_dataset.py```
+Simply run  ```./data/scannet/process_dataset.py --min_frames 5 --min_angle 5. --min_ratio 15```
 This step will generate two subfolders (i.e., 'instance-filt', 'bbox2d_*class') and one file (i.e., 
 '<sceneid>_validframes_*class.txt') in each scan folder. Also, it will generate two files (i.e., 
 'log_process_data.txt', 'sceneid_valid.txt') in the root data dir..
@@ -40,7 +40,7 @@ This step will generate two subfolders (i.e., 'instance-filt', 'bbox2d_*class') 
 ### Train mult-label classifier to extract CAM
 We use the ResNet-50 backbone as our 2D feature extractor.
 
-For training, run ```./CAM/train_cam.py --modelname ResNet50 --pretrained True --batch_size 64 --max_epoch 20 
+For training, run ```./CAM/train_cam.py --modelname ResNet50 --pretrained True --input_size 224 --batch_size 64 --max_epoch 20 
 --learning_rate 0.0001 --weight_decay 0.00001 --decay_step 5 --decay_ratio 0.7 ```.
 If 'pretrained' is True, the model will be first  pre-trained on ImageNet dataset, otherwise it will be trained 
 from scratch. 

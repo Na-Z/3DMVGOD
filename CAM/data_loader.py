@@ -57,7 +57,7 @@ class MyImageLoader(DATA.Dataset):
 
         self.scannet = scannet_object(root_dir, mode)
         self.extract_image_info()
-        print('Mode-{0}: Images-{1}'.format(mode, len(self.image_paths)))
+        # print('Mode-{0}: Images-{1}'.format(mode, len(self.image_paths)))
 
     def extract_image_info(self):
         '''
@@ -82,8 +82,13 @@ class MyImageLoader(DATA.Dataset):
             label[cfg.SCANNET.CLASS2INDEX[class_name]] = 1
 
         img = Image.open(self.image_paths[index])
+        w, h = img.size
+        delta_w = cfg.SCANNET.IMAGE_WIDTH - w
+        delta_h = cfg.SCANNET.IMAGE_HEIGHT - h
+        padding = (delta_w//2, delta_h//2, delta_w-(delta_w//2), delta_h-(delta_h//2))
+        new_img = ImageOps.expand(img, padding)
         ## resize the image into a low resolution
-        new_img = F.resize(img, self.input_size, interpolation=Image.LANCZOS)
+        new_img = F.resize(new_img, self.input_size, interpolation=Image.LANCZOS)
         image = F.to_tensor(new_img)
         label = torch.from_numpy(label.astype(np.float32))
 
