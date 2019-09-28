@@ -1,6 +1,8 @@
 import os
 import numpy as np
 from PIL import Image
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 import copy
 from scipy.optimize import linprog
 from scipy.spatial import HalfspaceIntersection
@@ -152,9 +154,9 @@ def frustum_planes_intersect(p_planes_list):
     interior_point = _calc_interior_point(halfspaces)
     if interior_point is None:
         return None
-    visualize_frustums_plus_interior_point(p_planes_list, interior_point)
+    # visualize_frustums_plus_interior_point(p_planes_list, interior_point)
     hs = HalfspaceIntersection(halfspaces, interior_point)
-    visualize_frustums_intersection(p_planes_list, hs.intersections)
+    # visualize_frustums_intersection(p_planes_list, hs.intersections)
     return hs
 
 
@@ -226,11 +228,38 @@ def compute_min_max_bounds_in_one_track(scan_dir, objects, trajectory):
     # visualize_n_frustums(frustum_planes)
     ptclouds = np.vstack(frustum_ptclouds)
     visualize_n_frustums_plus_ptclouds(frustum_planes, ptclouds)
-    hs = frustum_planes_intersect([frustum_planes[0], frustum_planes[1]])
-    if hs is not None:
-        print(hs.dual_vertices)
+
+    # compute the union of pairwise intersection
+    intersection_points_list = []
+    num_frustums = len(frustum_planes)
+    for i in range(num_frustums):
+        for j in range(i+1, num_frustums):
+            hs = frustum_planes_intersect([frustum_planes[i], frustum_planes[j]])
+            if hs is not None:
+                intersection_points_list.append(hs.dual_points)
+
+    intersection_points_union = np.vstack(intersection_points_list)
+    hull = ConvexHull(intersection_points_union, incremental=True)
 
     # plot the convex hull
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection="3d")
+
+    # Plot defining corner points
+    ax.plot(intersection_points_union.T[0], intersection_points_union.T[1], intersection_points_union.T[2], "ko")
+
+    # 12 = 2 * 6 faces are the simplices (2 simplices per square face)
+    for s in hull.simplices:
+        s = np.append(s, s[0])  # Here we cycle back to the first coordinate
+        ax.plot(intersection_points_union[s, 0], intersection_points_union[s, 1], intersection_points_union[s, 2], "r-")
+
+    # Make axis label
+    for i in ["x", "y", "z"]:
+        eval("ax.set_{:s}label('{:s}')".format(i, i))
+
+    plt.show()
+
+
 
 
 

@@ -94,6 +94,18 @@ def read_aggregation(filename):
     return object_id_to_label
 
 
+def read_axis_align_matrix(file_path):
+    # Load scene axis alignment matrix from meta file (<sceneid>.txt)
+    lines = open(file_path).readlines()
+    for line in lines:
+        if 'axisAlignment' in line:
+            axis_align_matrix = [float(x) \
+                for x in line.rstrip().strip('axisAlignment = ').split(' ')]
+            break
+    axis_align_matrix = np.array(axis_align_matrix).reshape((4,4))
+    return axis_align_matrix
+
+
 def read_camera_intrinsic(file_path):
     '''Read camera intrinsic parameters from meta file (<sceneid>.txt)
         [[fx, 0,  mx, 0]

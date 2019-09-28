@@ -377,7 +377,8 @@ def exhaustive_association(scan_dir, trajectories, frame_names, objects, poses, 
     :param to_visualize_epipolar: to visualize the point and its epipolar line segment in a pair of frames
     :param to_visualize_traj: to visualize the tracking results by exhaustive association.
     :param to_visualize_rotation: to visualize the relative rotation angle between two frames.
-    :return: full_trajectories_new, list of trajectories, where each trajectory is a list of (frame_idx, obj_idx)
+    :return: full_trajectories_new, list of (classname, trajectory),
+                                    where each trajectory is a list of (frame_idx, obj_idx)
     '''
 
     def _calc_forward_backward_DIST(src_obj_index, dst_obj_index):
@@ -540,10 +541,10 @@ def exhaustive_association(scan_dir, trajectories, frame_names, objects, poses, 
 
         return trajectories_linked
 
-    def select_valid_objects_in_one_track(track):
+    def select_valid_objects_in_one_track(tracklet):
         # filter out the bbox that lower than certain ratio of the average size of its trajectory
         objs_size = []
-        for frame_idx, bbox_idx in track:
+        for frame_idx, bbox_idx in tracklet:
             obj = objects[frame_idx][bbox_idx]
             size = (obj['dimension'][2] - obj['dimension'][0]) * (obj['dimension'][3] - obj['dimension'][1])
             objs_size.append(size)
@@ -566,29 +567,27 @@ def exhaustive_association(scan_dir, trajectories, frame_names, objects, poses, 
         if len(traj_ids) == 1:
             # if there is only one trajectory in this class, save it
             traj_id = traj_ids[0]
-            full_trajectories.append(trajectories[traj_id][1])
+            full_trajectories.append((classname, trajectories[traj_id][1]))
         else:
             # if there are multiple trajectories, link them via pairwise association
             trajectories_to_link = [trajectories[traj_id][1] for traj_id in traj_ids]
             trajectories_linked = traj_pairwise_association(trajectories_to_link)
-            full_trajectories.extend(trajectories_linked)
-
-    visualize_trajectory_in_videos(scan_dir, frame_names, objects, full_trajectories)
+            full_trajectories.extend((classname, trajectories_linked))
 
     # filter out the trajectories less than a certain number (ie 3) if frames..
     full_trajectories_new = []
-    for full_trajectory in full_trajectories:
+    for classname, full_trajectory in full_trajectories:
         if len(full_trajectory) >= MIN_TRACK_LENGTH:
             mask = select_valid_objects_in_one_track(full_trajectory)
             full_trajectory = np.array(full_trajectory)[mask]
             if len(full_trajectory) >= MIN_TRACK_LENGTH:
-                full_trajectories_new.append(full_trajectory)
+                full_trajectories_new.append((classname, full_trajectory))
 
     if to_visualize_traj:
         # visualize via video
         visualize_trajectory_in_videos(scan_dir, frame_names, objects, full_trajectories_new)
         #visualize via images
-        # for i, full_trajectory in enumerate(full_trajectories_new):
+        # for i, (classname, full_trajectory) in enumerate(full_trajectories_new):
         #     visualize_trajectory(scan_dir, objects, full_trajectory)
 
     return full_trajectories_new
