@@ -8,12 +8,12 @@ from Box3dGenerator.frustums import compute_min_max_bounds_in_one_track
 def process_one_scan(scan_dir, scan_name, valid_frame_names):
     #TODO: input for the arguments of tracking function
     objects, trajectories = tracking(scan_dir, scan_name, valid_frame_names, visu_pairwise_traj=False,
-                                     visu_exhaustive_traj=True)
+                                     visu_exhaustive_traj=False)
 
     # extract cams of objects
     for i, trajectory in enumerate(trajectories):
         print('Extract cams from the {0}-th trajectory [length: {1}]'.format(i, len(trajectory)))
-        compute_min_max_bounds_in_one_track(scan_dir, objects, trajectory)
+        compute_min_max_bounds_in_one_track(scan_dir, scan_name, objects, trajectory)
 
 
 def main(opt):

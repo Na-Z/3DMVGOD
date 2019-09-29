@@ -2,6 +2,7 @@ import os
 import math
 import numpy as np
 import cv2
+from mayavi import mlab
 import matplotlib
 # matplotlib.use('TkAGG')
 from matplotlib import pyplot as plt
@@ -9,6 +10,8 @@ from matplotlib.pyplot import cm as colormap
 import vtk
 from vtk_visualizer.plot3d import *
 from vtk_visualizer import get_vtk_control
+
+import data.scannet.scannet_utils as utils
 
 
 def visualize_bbox(scan_dir, obj):
@@ -169,6 +172,104 @@ def visualize_frustum_ptcloud_with_cam(frustum_ptcloud):
         norm=matplotlib.colors.Normalize(vmin=0, vmax=1, clip=True), cmap=cm)
     color = color_mapper.to_rgba(frustum_ptcloud[:, 3])[:, :3] * 255
     visualize_ptcloud_with_color(frustum_ptcloud[:,0:3], color)
+
+
+def draw_gt_boxes3d(gt_boxe3d, instance_id, fig, color=(1, 1, 1), line_width=1, draw_text=False, text_scale=(1, 1, 1),
+                    color_list=None):
+    ''' Draw 3D bounding boxes
+    Args:
+        gt_boxe3d: numpy array (8,3) for XYZs of the box corners
+        fig: mayavi figure handler
+        color: RGB value tuple in range (0,1), box line color
+        line_width: box line width
+        draw_text: boolean, if true, write box indices beside boxes
+        text_scale: three number tuple
+        color_list: a list of RGB tuple, if not None, overwrite color.
+    Returns:
+        fig: updated fig
+    '''
+    b = gt_boxe3d
+    if color_list is not None:
+        color = color_list[0]
+    if draw_text: mlab.text3d(b[4, 0], b[4, 1], b[4, 2], '%d' % instance_id, scale=text_scale, color=color, figure=fig)
+    for k in range(0, 4):
+        # http://docs.enthought.com/mayavi/mayavi/auto/mlab_helper_functions.html
+        i, j = k, (k + 1) % 4
+        mlab.plot3d([b[i, 0], b[j, 0]], [b[i, 1], b[j, 1]], [b[i, 2], b[j, 2]], color=color, tube_radius=None,
+                    line_width=line_width, figure=fig)
+
+        i, j = k + 4, (k + 1) % 4 + 4
+        mlab.plot3d([b[i, 0], b[j, 0]], [b[i, 1], b[j, 1]], [b[i, 2], b[j, 2]], color=color, tube_radius=None,
+                    line_width=line_width, figure=fig)
+
+        i, j = k, k + 4
+        mlab.plot3d([b[i, 0], b[j, 0]], [b[i, 1], b[j, 1]], [b[i, 2], b[j, 2]], color=color, tube_radius=None,
+                    line_width=line_width, figure=fig)
+    return fig
+
+
+def visualize_bbox3d_in_whole_scene(scan_dir, scan_name, instance_id):
+    '''visualize the whole point cloud and the ground truth 3D bounding box with respect to instance_id'''
+    def compute_box_3d(obj_pc):
+        xmin = np.min(obj_pc[:, 0])
+        ymin = np.min(obj_pc[:, 1])
+        zmin = np.min(obj_pc[:, 2])
+        xmax = np.max(obj_pc[:, 0])
+        ymax = np.max(obj_pc[:, 1])
+        zmax = np.max(obj_pc[:, 2])
+        bbox = np.array([(xmin + xmax) / 2, (ymin + ymax) / 2, (zmin + zmax) / 2,
+                         xmax - xmin, ymax - ymin, zmax - zmin])
+        return bbox
+
+    def compute_box_corners(bbox):
+        x, y, z = bbox[0:3]
+        l, w, h = bbox[3:6]/2
+        x_corners = [-l, l, l, -l, -l, l, l, -l]
+        y_corners = [w, w, -w, -w, w, w, -w, -w]
+        z_corners = [h, h, h, h, -h, -h, -h, -h]
+        corners_3d = np.vstack([x_corners, y_corners, z_corners])
+        corners_3d[0, :] += x
+        corners_3d[1, :] += y
+        corners_3d[2, :] += z
+        return corners_3d.transpose()
+
+    # Load point cloud and align it with axis
+    mesh_file = os.path.join(scan_dir, '{0}_vh_clean_2.ply'.format(scan_name))
+    mesh_vertices = utils.read_mesh_vertices_rgb(mesh_file)
+
+    meta_file_path = os.path.join(scan_dir, '{0}.txt'.format(scan_name))
+    axis_align_matrix = utils.read_axis_align_matrix(meta_file_path)
+    pts = np.ones((mesh_vertices.shape[0], 4))
+    pts[:,0:3] = mesh_vertices[:,0:3]
+    pts = np.dot(pts, axis_align_matrix.transpose()) # Nx4
+    mesh_vertices[:,0:3] = pts[:,0:3]
+
+    # Load semantic and instance labels
+    agg_file = os.path.join(scan_dir, '{0}.aggregation.json'.format(scan_name))
+    seg_file = os.path.join(scan_dir, '{0}_vh_clean_2.0.010000.segs.json'.format(scan_name))
+    object_id_to_segs, label_to_segs = utils.read_aggregation2(agg_file)
+    seg_to_verts, num_verts = utils.read_segmentation(seg_file)
+    instance_ids = np.zeros(shape=(num_verts), dtype=np.uint32)  # 0: unannotated
+    for object_id, segs in object_id_to_segs.items():
+        for seg in segs:
+            verts = seg_to_verts[seg]
+            instance_ids[verts] = object_id
+
+    # Get the points inside the instance
+    obj_pc = mesh_vertices[instance_ids == instance_id, 0:3]
+    bbox = compute_box_3d(obj_pc) #[x,y,z,l,w,h]
+    corners_3d = compute_box_corners(bbox) #(8,3)
+
+    bgcolor=(0,0,0)
+    fig = mlab.figure(figure=None, bgcolor=bgcolor, fgcolor=None, engine=None, size=(1600, 1000))
+    mlab.points3d(mesh_vertices[:,0], mesh_vertices[:,1], mesh_vertices[:,2], mesh_vertices[:,2], mode='point',
+                                colormap='gnuplot', figure=fig)
+    mlab.points3d(obj_pc[:, 0], obj_pc[:, 1], obj_pc[:, 2], color=(1, 1, 1), mode='point', scale_factor=1,
+                  figure=fig)
+    mlab.points3d(0, 0, 0, color=(1,1,1), mode='sphere', scale_factor=0.2)
+    draw_gt_boxes3d(corners_3d, instance_id, fig=fig)
+    mlab.orientation_axes()
+    mlab.show()
 
 
 def visualize_one_frustum(p_planes):
@@ -457,7 +558,7 @@ def visualize_n_frustums_plus_ptclouds(p_planes_list, frustum_ptcloud):
         actor.SetMapper(mapper)
         actor.GetProperty().EdgeVisibilityOn()
         actor.GetProperty().SetColor(colors.GetColor3d("Banana"))
-        actor.GetProperty().SetOpacity(.5)
+        actor.GetProperty().SetOpacity(.2)
 
         renderer.AddActor(actor)
 
@@ -497,8 +598,8 @@ def visualize_n_frustums_plus_ptclouds(p_planes_list, frustum_ptcloud):
     actor = vtk.vtkActor()
     actor.SetMapper(mapper)
     actor.GetProperty().EdgeVisibilityOn()
-    actor.GetProperty().SetColor(colors.GetColor3d("Banana"))
-    actor.GetProperty().SetOpacity(.5)
+    actor.GetProperty().SetColor(colors.GetColor3d("Tomato"))
+    actor.GetProperty().SetOpacity(.3)
 
     renderer.AddActor(actor)
 

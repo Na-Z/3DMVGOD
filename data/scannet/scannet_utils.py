@@ -94,6 +94,40 @@ def read_aggregation(filename):
     return object_id_to_label
 
 
+def read_aggregation2(filename):
+    assert os.path.isfile(filename)
+    object_id_to_segs = {}
+    label_to_segs = {}
+    with open(filename) as f:
+        data = json.load(f)
+        num_objects = len(data['segGroups'])
+        for i in range(num_objects):
+            object_id = data['segGroups'][i]['objectId'] + 1 # instance ids should be 1-indexed
+            label = data['segGroups'][i]['label']
+            segs = data['segGroups'][i]['segments']
+            object_id_to_segs[object_id] = segs
+            if label in label_to_segs:
+                label_to_segs[label].extend(segs)
+            else:
+                label_to_segs[label] = segs
+    return object_id_to_segs, label_to_segs
+
+
+def read_segmentation(filename):
+    assert os.path.isfile(filename)
+    seg_to_verts = {}
+    with open(filename) as f:
+        data = json.load(f)
+        num_verts = len(data['segIndices'])
+        for i in range(num_verts):
+            seg_id = data['segIndices'][i]
+            if seg_id in seg_to_verts:
+                seg_to_verts[seg_id].append(i)
+            else:
+                seg_to_verts[seg_id] = [i]
+    return seg_to_verts, num_verts
+
+
 def read_axis_align_matrix(file_path):
     # Load scene axis alignment matrix from meta file (<sceneid>.txt)
     lines = open(file_path).readlines()

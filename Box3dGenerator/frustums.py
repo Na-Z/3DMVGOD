@@ -183,16 +183,18 @@ def frustum_ptcloud_with_cam_in_world_frame(depth_img, bbox2d_dimension, CAM, de
     return pts_cam_world
 
 
-def compute_min_max_bounds_in_one_track(scan_dir, objects, trajectory):
+def compute_min_max_bounds_in_one_track(scan_dir, scan_name, objects, trajectory):
 
     frustum_ptclouds = []
     frustum_planes = []
+    instance_ids = []
 
     for frame_idx, bbox_idx in trajectory:
         obj = objects[frame_idx][bbox_idx]
         dimension = obj['dimension']
         classname = obj['classname']
         frame_name = obj['frame_name']
+        instance_ids.append(obj['instance_id'])
         # visualize_bbox(scan_dir, obj)
 
         depth_img_path = os.path.join(scan_dir, 'depth', '{0}.png'.format(frame_name))
@@ -201,7 +203,7 @@ def compute_min_max_bounds_in_one_track(scan_dir, objects, trajectory):
         camera2world_extrinsic_path = os.path.join(scan_dir, 'pose', '{0}.txt'.format(frame_name))
         camera2world_extrinsic = np.loadtxt(camera2world_extrinsic_path)  # 4*4
 
-        meta_file_path = os.path.join(scan_dir, '{0}.txt'.format(scan_dir.split('/')[-1]))
+        meta_file_path = os.path.join(scan_dir, '{0}.txt'.format(scan_name))
         depth_intrinsic = utils.read_depth_intrinsic(meta_file_path)
         camera_intrinsic = utils.read_camera_intrinsic(meta_file_path)
         color2depth_extrinsic = utils.read_color2depth_extrinsic(meta_file_path)
@@ -224,6 +226,16 @@ def compute_min_max_bounds_in_one_track(scan_dir, objects, trajectory):
         frustum_planes.append(frustum_plane)
 
     #TODO: use activated frustum ptcloud to filter out invalid object..
+
+    # visualize the whole point cloud and the ground truth 3D bounding box
+    instance_ids = np.unique(np.array(instance_ids))
+    if len(instance_ids) == 1:
+        visualize_bbox3d_in_whole_scene(scan_dir, scan_name, instance_ids[0])
+    else:
+        # debug to check if one track contains more than one instance..
+        print('Warning! The track contains more than one object!')
+        for instance_id in instance_ids:
+            visualize_bbox3d_in_whole_scene(scan_dir, scan_name, instance_id)
 
     # visualize_n_frustums(frustum_planes)
     ptclouds = np.vstack(frustum_ptclouds)

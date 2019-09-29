@@ -18,7 +18,7 @@ if __name__ == '__main__':
     opt = parser.parse_args()
 
     #SCAN_NAMES = [line.rstrip() for line in open('/mnt/Data/Datasets/ScanNet_v1/sceneid_sort.txt')]
-    SCAN_NAMES = ['scene0067_02']
+    SCAN_NAMES = ['scene0543_02']
 
     for scan_id, scan_name in enumerate(SCAN_NAMES):
         print('====== Process {0}-th scan [{1}] ======'.format(scan_id, scan_name))
