@@ -10,6 +10,7 @@ from matplotlib.pyplot import cm as colormap
 import vtk
 from vtk_visualizer.plot3d import *
 from vtk_visualizer import get_vtk_control
+from scipy.spatial import Delaunay
 
 import data.scannet.scannet_utils as utils
 
@@ -74,6 +75,24 @@ def visualize_epipolar_geometry(scan_dir, objects, src_frame_idx, src_bbox_idx, 
     # plt.waitforbuttonpress()
 
 
+def visualize_rotation_angle(scan_dir, objects, traj_a, traj_b, angle):
+    '''visualize the relative rotation angle between two frames in trajectory pair'''
+    src_obj = objects[traj_a[-1][0]][traj_a[-1][1]]
+    src_img = cv2.imread(os.path.join(scan_dir, 'color', '{0}.jpg'.format(src_obj['frame_name'])))
+    src_img = cv2.cvtColor(src_img, cv2.COLOR_BGR2RGB)
+
+    dst_obj = objects[traj_b[0][0]][traj_b[0][1]]
+    dst_img = cv2.imread(os.path.join(scan_dir, 'color', '{0}.jpg'.format(dst_obj['frame_name'])))
+    dst_img = cv2.cvtColor(dst_img, cv2.COLOR_BGR2RGB)
+
+    plt.subplot(121), plt.imshow(src_img)
+    plt.subplot(122), plt.imshow(dst_img)
+    plt.gca().set_title(angle)
+    plt.show()
+
+
+# =============================== Visualize Trajectories  ================================
+
 def visualize_trajectory(scan_dir, objects, trajectory):
     num_frames = len(trajectory)
     ncols = int(math.sqrt(num_frames))
@@ -136,21 +155,7 @@ def visualize_trajectory_in_videos(scan_dir, frame_names, objects, trajectories)
     # write_video(video, 2, (cfg.SCANNET.IMAGE_WIDTH, cfg.SCANNET.IMAGE_HEIGHT), out_path)
 
 
-def visualize_rotation_angle(scan_dir, objects, traj_a, traj_b, angle):
-    '''visualize the relative rotation angle between two frames in trajectory pair'''
-    src_obj = objects[traj_a[-1][0]][traj_a[-1][1]]
-    src_img = cv2.imread(os.path.join(scan_dir, 'color', '{0}.jpg'.format(src_obj['frame_name'])))
-    src_img = cv2.cvtColor(src_img, cv2.COLOR_BGR2RGB)
-
-    dst_obj = objects[traj_b[0][0]][traj_b[0][1]]
-    dst_img = cv2.imread(os.path.join(scan_dir, 'color', '{0}.jpg'.format(dst_obj['frame_name'])))
-    dst_img = cv2.cvtColor(dst_img, cv2.COLOR_BGR2RGB)
-
-    plt.subplot(121), plt.imshow(src_img)
-    plt.subplot(122), plt.imshow(dst_img)
-    plt.gca().set_title(angle)
-    plt.show()
-
+# =============================== Visualize Point Clouds  ================================
 
 def visualize_ptcloud_with_color(xyz, rgb):
     '''
@@ -271,6 +276,53 @@ def visualize_bbox3d_in_whole_scene(scan_dir, scan_name, instance_id):
     mlab.orientation_axes()
     mlab.show()
 
+
+def visualize_convex_hull_plus_ptcloud_static(intersection_points, ptcloud, inside):
+    hull =  Delaunay(intersection_points)
+
+    # plot the convex hull
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection="3d")
+
+    # Plot defining corner points
+    ax.plot(intersection_points.T[0], intersection_points.T[1], intersection_points.T[2], "ko")
+
+    # 12 = 2 * 6 faces are the simplices (2 simplices per square face)
+    for s in hull.simplices:
+        s = np.append(s, s[0])  # Here we cycle back to the first coordinate
+        ax.plot(intersection_points[s, 0], intersection_points[s, 1], intersection_points[s, 2], "r-")
+
+    # Make axis label
+    for i in ["x", "y", "z"]:
+        eval("ax.set_{:s}label('{:s}')".format(i, i))
+
+    # plot tested points `p` - black are inside hull, red outside
+    ax.plot(ptcloud[ inside,0],ptcloud[ inside,1],ptcloud[ inside,2],'.g')
+    ax.plot(ptcloud[~inside,0],ptcloud[~inside,1],ptcloud[~inside,2],'.b')
+    plt.show()
+
+
+def visualize_convex_hull_plus_ptcloud_interactive(intersection_points, ptcloud, inside):
+    pts_inside = ptcloud[inside, :]
+    pts_outside = ptcloud[~inside, :]
+
+    bgcolor=(0,0,0)
+    fig = mlab.figure(figure=None, bgcolor=bgcolor, fgcolor=None, engine=None, size=(1600, 1000))
+
+    mlab.points3d(pts_inside[:,0], pts_inside[:,1], pts_inside[:,2], color=(1,0,0), mode='point',
+                  scale_factor=1, figure=fig) #red
+    mlab.points3d(pts_outside[:, 0], pts_outside[:, 1], pts_outside[:, 2], color=(1, 1, 1), mode='point',
+                  scale_factor=1, figure=fig) #white
+
+    mlab.points3d(intersection_points[:,0], intersection_points[:,1], intersection_points[:,2], color=(0,0,1),
+                  mode='cube', scale_factor=0.1) #blue
+    mlab.points3d(0, 0, 0, color=(1,1,1), mode='sphere', scale_factor=0.2)
+    mlab.orientation_axes()
+    mlab.show()
+
+
+
+# ========================== Visualize Frustums with VTK ==========================
 
 def visualize_one_frustum(p_planes):
 
@@ -767,9 +819,10 @@ def visualize_frustums_intersection(p_planes_list, intersections):
         actor.GetProperty().EdgeVisibilityOn()
         if i % 2 == 0:
             actor.GetProperty().SetColor(colors.GetColor3d("Tomato"))
-            actor.GetProperty().SetOpacity(.5)
+            actor.GetProperty().SetOpacity(.2)
         else:
             actor.GetProperty().SetColor(colors.GetColor3d("Banana"))
+            actor.GetProperty().SetOpacity(.4)
 
         renderer.AddActor(actor)
 

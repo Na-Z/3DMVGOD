@@ -5,19 +5,24 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import copy
 from scipy.optimize import linprog
-from scipy.spatial import HalfspaceIntersection
-from scipy.spatial import ConvexHull
+from scipy.spatial import HalfspaceIntersection, ConvexHull
+import itertools
 
 from config import cfg
 import data.scannet.scannet_utils as utils
 from Box3dGenerator.visualizer import *
 
 
-def _calc_boundary_points(bbox2d_dimension, camera_intrinsic, n=-0.1, f=-5):
+def _calc_boundary_points(bbox2d_dimension, camera_intrinsic, z_near=0.1, z_far=5):
     '''
     calculate the six (right, left, bottom, top, near, far) boundary values of the truncated frustum
      along x, y, z axis based on the 2D bbox corner points of color image
     '''
+    # the camera at the origin is looking along -Z axis in eye space, we need to negate the input positive values
+    # refer to http://www.songho.ca/opengl/gl_projectionmatrix.html
+    n = -z_near
+    f = -z_far
+
     xmin, ymin, xmax, ymax = bbox2d_dimension
 
     #left bottom point of the bbox on color image
@@ -42,7 +47,6 @@ def _calc_boundary_points(bbox2d_dimension, camera_intrinsic, n=-0.1, f=-5):
     t = pts_rt_camera[0, 1]
 
     return r, l, b, t, n, f
-
 
 
 def _construct_projection_matrix(r, l, b, t, n, f):
@@ -134,6 +138,16 @@ def _calc_inequalities_coefficients(M):
     return p_planes
 
 
+def extract_frustum_plane(bbox2d_dimension, camera_intrinsic, camera2world_extrinsic, z_near, z_far):
+
+    r, l, b, t, n, f = _calc_boundary_points(bbox2d_dimension, camera_intrinsic, z_near, z_far)
+    P = _construct_projection_matrix(r, l, b, t, n, f)
+    M = P @ np.linalg.inv(camera2world_extrinsic)
+    p_planes = _calc_inequalities_coefficients(M)
+
+    return p_planes
+
+
 def _calc_interior_point(halfspaces):
     c = np.zeros((halfspaces.shape[1]-1,))
     A = halfspaces[:, :-1]
@@ -147,27 +161,61 @@ def _calc_interior_point(halfspaces):
     return interior_point
 
 
-def frustum_planes_intersect(p_planes_list):
+def frustum_planes_intersect(p_planes_list, visu_interior_point=False, visu_intersection_points=False):
     halfspaces = np.vstack(p_planes_list)
     ## change halfspaces from stacked Inequalities of the form Ax+b>0 in format [A; b] to -Ax-b<0 in format [-A;-b]
     #halfspaces = - halfspaces
     interior_point = _calc_interior_point(halfspaces)
     if interior_point is None:
         return None
-    # visualize_frustums_plus_interior_point(p_planes_list, interior_point)
+    if visu_interior_point:
+        visualize_frustums_plus_interior_point(p_planes_list, interior_point)
     hs = HalfspaceIntersection(halfspaces, interior_point)
-    # visualize_frustums_intersection(p_planes_list, hs.intersections)
+    if visu_intersection_points:
+        visualize_frustums_intersection(p_planes_list, hs.intersections)
     return hs
 
 
-def extract_frustum_plane(bbox2d_dimension, camera_intrinsic, camera2world_extrinsic):
+def remove_noisy_frustums(frustum_planes, min_volume, thres_ratio=2.):
+    '''compute the intersection of (n-i) frustums, if the intersection volume is larger than thres_ratio*min_volume,
+        consider those i frustums as noisy frustums...
+    '''
+    n = len(frustum_planes) # number of frustums
+    iterable = list(range(n))
+    to_remove_frustums = []
+    for i in range(1, (n//2)+1):
+        exclude_pool = itertools.combinations(iterable, i)
+        for to_exclude in exclude_pool:
+            cur_frustum_planes = [frustum_plane for idx, frustum_plane in enumerate(frustum_planes)
+                                                    if idx not in to_exclude]
+            cur_hs = frustum_planes_intersect(cur_frustum_planes, visu_intersection_points=False)
+            cur_volume = ConvexHull(cur_hs.intersections).volume
+            # TODO: if increase the threhold i times when considering remove i (i>1) frustums
+            if cur_volume >= thres_ratio*min_volume*i:
+                to_remove_frustums.extend(to_exclude)
+                break
+        else:
+            break
+    # remove the noisy frustums
+    if len(to_remove_frustums) != 0:
+        frustum_planes = [frustum_plane for idx, frustum_plane in enumerate(frustum_planes)
+                                            if idx not in list(set(to_remove_frustums))]
+    return frustum_planes
 
-    r, l, b, t, n, f = _calc_boundary_points(bbox2d_dimension, camera_intrinsic)
-    P = _construct_projection_matrix(r, l, b, t, n, f)
-    M = P @ np.linalg.inv(camera2world_extrinsic)
-    p_planes = _calc_inequalities_coefficients(M)
 
-    return p_planes
+def in_hull(p, hull):
+    """
+    Test if points in `p` are in `hull`
+
+    `p` should be a `NxK` coordinates of `N` points in `K` dimensions
+    `hull` is either a scipy.spatial.Delaunay object or the `MxK` array of the
+    coordinates of `M` points in `K`dimensions for which Delaunay triangulation
+    will be computed
+    """
+    if not isinstance(hull,Delaunay):
+        hull = Delaunay(hull)
+
+    return hull.find_simplex(p)>=0
 
 
 def frustum_ptcloud_with_cam_in_world_frame(depth_img, bbox2d_dimension, CAM, depth_intrinsic,
@@ -177,10 +225,13 @@ def frustum_ptcloud_with_cam_in_world_frame(depth_img, bbox2d_dimension, CAM, de
     cam_score = pts_cam_depth_camera[:, -1].reshape(-1, 1)
 
     pts_color_camera = utils.calibrate_camera_depth_to_color(pts_depth_camera, color2depth_extrinsic)
+    z_near = np.amin(pts_color_camera, axis=0)[2]
+    z_far = np.amax(pts_color_camera, axis=0)[2]
+
     pts_world = pts_color_camera @ camera2world_extrinsic.transpose()
 
     pts_cam_world = np.hstack((pts_world[:, :3], cam_score))
-    return pts_cam_world
+    return pts_cam_world, z_near, z_far
 
 
 def compute_min_max_bounds_in_one_track(scan_dir, scan_name, objects, trajectory):
@@ -212,27 +263,26 @@ def compute_min_max_bounds_in_one_track(scan_dir, scan_name, objects, trajectory
         cam_path = os.path.join(scan_dir, 'cam', '{0}.npy'.format(frame_name))
         CAMs = np.load(cam_path)
         CAM = CAMs[:, :, cfg.SCANNET.CLASS2INDEX[classname]]
-        frustum_ptcloud = frustum_ptcloud_with_cam_in_world_frame(depth_img, dimension, CAM, depth_intrinsic,
-                                                color2depth_extrinsic, camera2world_extrinsic)
+        frustum_ptcloud, z_near, z_far = frustum_ptcloud_with_cam_in_world_frame(depth_img, dimension, CAM,
+                                            depth_intrinsic, color2depth_extrinsic, camera2world_extrinsic)
         ## visualize frustum point cloud
         #visualize_frustum_ptcloud_with_cam(frustum_ptcloud)
         frustum_ptclouds.append(frustum_ptcloud)
 
         ## generate frustum clipping planes
-        frustum_plane = extract_frustum_plane(dimension, camera_intrinsic, camera2world_extrinsic)
+        frustum_plane = extract_frustum_plane(dimension, camera_intrinsic, camera2world_extrinsic, z_near, z_far)
         ## visualize frustum plan
         # visualize_one_frustum(frustum_plane)
         # visualize_one_frustum_plus_points(frustum_plane, frustum_ptcloud)
         frustum_planes.append(frustum_plane)
 
-    #TODO: use activated frustum ptcloud to filter out invalid object..
 
-    # visualize the whole point cloud and the ground truth 3D bounding box
+    ## visualize the whole point cloud and the ground truth 3D bounding box
     instance_ids = np.unique(np.array(instance_ids))
     if len(instance_ids) == 1:
         visualize_bbox3d_in_whole_scene(scan_dir, scan_name, instance_ids[0])
     else:
-        # debug to check if one track contains more than one instance..
+        ## debug to check if one track contains more than one instance..
         print('Warning! The track contains more than one object!')
         for instance_id in instance_ids:
             visualize_bbox3d_in_whole_scene(scan_dir, scan_name, instance_id)
@@ -241,35 +291,19 @@ def compute_min_max_bounds_in_one_track(scan_dir, scan_name, objects, trajectory
     ptclouds = np.vstack(frustum_ptclouds)
     visualize_n_frustums_plus_ptclouds(frustum_planes, ptclouds)
 
-    # compute the union of pairwise intersection
-    intersection_points_list = []
-    num_frustums = len(frustum_planes)
-    for i in range(num_frustums):
-        for j in range(i+1, num_frustums):
-            hs = frustum_planes_intersect([frustum_planes[i], frustum_planes[j]])
-            if hs is not None:
-                intersection_points_list.append(hs.dual_points)
+    ## compute the intersection of n frustums
+    hs = frustum_planes_intersect(frustum_planes, visu_intersection_points=True)
+    if hs is not None:
+        min_volume = ConvexHull(hs.intersections).volume
 
-    intersection_points_union = np.vstack(intersection_points_list)
-    hull = ConvexHull(intersection_points_union, incremental=True)
+        frustum_planes_clean = remove_noisy_frustums(frustum_planes, min_volume, thres_ratio=1.5)
+        visualize_n_frustums_plus_ptclouds(frustum_planes_clean, ptclouds)
+        hs = frustum_planes_intersect(frustum_planes_clean, visu_intersection_points=False)
+        intersection_points = hs.intersections
+        inside_mask = in_hull(ptclouds[:,:3],intersection_points)
 
-    # plot the convex hull
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection="3d")
-
-    # Plot defining corner points
-    ax.plot(intersection_points_union.T[0], intersection_points_union.T[1], intersection_points_union.T[2], "ko")
-
-    # 12 = 2 * 6 faces are the simplices (2 simplices per square face)
-    for s in hull.simplices:
-        s = np.append(s, s[0])  # Here we cycle back to the first coordinate
-        ax.plot(intersection_points_union[s, 0], intersection_points_union[s, 1], intersection_points_union[s, 2], "r-")
-
-    # Make axis label
-    for i in ["x", "y", "z"]:
-        eval("ax.set_{:s}label('{:s}')".format(i, i))
-
-    plt.show()
+        # visualize_convex_hull_plus_ptcloud_static(intersection_points, ptclouds[:,:3], inside_mask)
+        visualize_convex_hull_plus_ptcloud_interactive(intersection_points, ptclouds[:,:3], inside_mask)
 
 
 
