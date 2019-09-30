@@ -7,12 +7,18 @@ from Box3dGenerator.frustums import compute_min_max_bounds_in_one_track
 
 def process_one_scan(scan_dir, scan_name, valid_frame_names):
     #TODO: input for the arguments of tracking function
-    objects, trajectories = tracking(scan_dir, scan_name, valid_frame_names, visu_pairwise_traj=False,
-                                     visu_exhaustive_traj=False)
+    objects, trajectories = tracking(scan_dir, scan_name, valid_frame_names, min_ratio=9,
+                                     pairwise_min_scale=0.5, pairwise_min_dist=50,
+                                     visu_pairwise_epipolar=False, visu_pairwise_traj=False,
+                                     exhaustive_min_dist=100, exhaustive_max_angle=110,
+                                     exhausive_min_size_ratio=0.7, min_track_length=4,
+                                     visu_exhaustive_epipolar=False, visu_exhaustive_rotation=False,
+                                     visu_exhaustive_traj=True)
 
     # extract cams of objects
     for i, trajectory in enumerate(trajectories):
-        print('Extract cams from the {0}-th trajectory [length: {1}]'.format(i, len(trajectory)))
+        print('Generate 3D bbox for the {0}-th trajectory [length: {1}]'.format(i, len(trajectory)))
+        # if i <= 0: continue
         compute_min_max_bounds_in_one_track(scan_dir, scan_name, objects, trajectory)
 
 
@@ -35,7 +41,7 @@ def main(opt):
         random.shuffle(scan_name_list)
 
     for scan_idx, scan_name in enumerate(scan_name_list):
-        print('-----------Process ({0}, {1})-----------'.format(scan_idx, scan_name))
+        print('------------------Process ({0}, {1})------------------'.format(scan_idx, scan_name))
         scan_dir = os.path.join(data_dir, scan_name)
         # TODO: modify file name, remove {2}frameskip
         #valid_frame_names_file = os.path.join(scan_dir, '{0}_validframes_{1}class.txt'
@@ -52,7 +58,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--root_dir', default='/mnt/Data/Datasets/ScanNet_v2/', help='path to data')
-    parser.add_argument('--scan_id', default='scene0543_02', help='specific scan id to download') #'scene0067_02'
+    parser.add_argument('--scan_id', default='scene0543_02', help='specific scan id to download') #'scene0067_02','scene0543_02','scene0299_00','scene0431_00'
 
     opt = parser.parse_args()
 

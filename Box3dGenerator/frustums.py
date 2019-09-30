@@ -11,9 +11,11 @@ import itertools
 from config import cfg
 import data.scannet.scannet_utils as utils
 from Box3dGenerator.visualizer import *
+from Box3dGenerator.numba_utils import *
+from Box3dGenerator.bounding_box import *
 
 
-def _calc_boundary_points(bbox2d_dimension, camera_intrinsic, z_near=0.1, z_far=5):
+def _calc_boundary_points(bbox2d_dimension, camera_intrinsic, z_near, z_far):
     '''
     calculate the six (right, left, bottom, top, near, far) boundary values of the truncated frustum
      along x, y, z axis based on the 2D bbox corner points of color image
@@ -155,7 +157,7 @@ def _calc_interior_point(halfspaces):
     res = linprog(c, A_ub=A, b_ub=b, bounds=(0,None))
     # if the problem can not be solved, return None
     if res.status != 0:
-        print('Warning! The optimization is unsolved, the status of optimization result is {0}'.format(res.status))
+        print('\t Warning! The optimization is unsolved, the status of optimization result is {0}'.format(res.status))
         return None
     interior_point = res.x
     return interior_point
@@ -176,7 +178,7 @@ def frustum_planes_intersect(p_planes_list, visu_interior_point=False, visu_inte
     return hs
 
 
-def remove_noisy_frustums(frustum_planes, min_volume, thres_ratio=2.):
+def remove_noisy_frustums(frustum_planes, min_volume, thres_volume_ratio=2.):
     '''compute the intersection of (n-i) frustums, if the intersection volume is larger than thres_ratio*min_volume,
         consider those i frustums as noisy frustums...
     '''
@@ -191,15 +193,17 @@ def remove_noisy_frustums(frustum_planes, min_volume, thres_ratio=2.):
             cur_hs = frustum_planes_intersect(cur_frustum_planes, visu_intersection_points=False)
             cur_volume = ConvexHull(cur_hs.intersections).volume
             # TODO: if increase the threhold i times when considering remove i (i>1) frustums
-            if cur_volume >= thres_ratio*min_volume*i:
+            if cur_volume >= thres_volume_ratio*min_volume*i:
                 to_remove_frustums.extend(to_exclude)
                 break
         else:
             break
     # remove the noisy frustums
     if len(to_remove_frustums) != 0:
+        to_remove_frustums = list(set(to_remove_frustums))
+        print('\t Removed {0} noisy frustums [volume_ratio-{1}]'.format(len(to_remove_frustums), thres_volume_ratio))
         frustum_planes = [frustum_plane for idx, frustum_plane in enumerate(frustum_planes)
-                                            if idx not in list(set(to_remove_frustums))]
+                                            if idx not in to_remove_frustums]
     return frustum_planes
 
 
@@ -218,8 +222,8 @@ def in_hull(p, hull):
     return hull.find_simplex(p)>=0
 
 
-def frustum_ptcloud_with_cam_in_world_frame(depth_img, bbox2d_dimension, CAM, depth_intrinsic,
-                                            color2depth_extrinsic, camera2world_extrinsic):
+def frustum_ptcloud_with_cam_in_world_frame(depth_img, bbox2d_dimension, CAM, depth_intrinsic, color2depth_extrinsic,
+                                             camera2world_extrinsic):
     pts_cam_depth_camera = utils.cropped_depth_to_point_cloud_with_cam(depth_img, depth_intrinsic, bbox2d_dimension, CAM)
     pts_depth_camera = pts_cam_depth_camera[:,:3]
     cam_score = pts_cam_depth_camera[:, -1].reshape(-1, 1)
@@ -231,10 +235,54 @@ def frustum_ptcloud_with_cam_in_world_frame(depth_img, bbox2d_dimension, CAM, de
     pts_world = pts_color_camera @ camera2world_extrinsic.transpose()
 
     pts_cam_world = np.hstack((pts_world[:, :3], cam_score))
+
     return pts_cam_world, z_near, z_far
 
 
-def compute_min_max_bounds_in_one_track(scan_dir, scan_name, objects, trajectory):
+
+def pcmerge(ptclouds, gridSize=.02):
+    '''
+    merge a set of 3D point clouds using a box grid filter
+    :param: ptclouds, a stack of several frustum point cloud with shape (n, 4) [x,y,z,score]
+                            where score indicate the class activated score
+    :param: gridSize, size of the voxel for grid filter, specified as a numeric value.
+                        Increase the size of gridSize when requiring a higher-resolution grid.
+    :return: a merged point cloud
+    '''
+
+    def voxelize_pointcloud(n_xyz):
+        segments = []
+        for i in range(3):
+            s = np.linspace(xyz_min[i], xyz_max[i], num=(n_xyz[i]))
+            segments.append(s)
+
+        ## find where each point lies in corresponding segmented axis
+        voxel_x = np.clip(np.searchsorted(segments[0], ptclouds[:, 0]), 0, n_xyz[0]-1)
+        voxel_y = np.clip(np.searchsorted(segments[1], ptclouds[:, 1]), 0, n_xyz[1]-1)
+        voxel_z = np.clip(np.searchsorted(segments[2], ptclouds[:, 2]), 0, n_xyz[2]-1)
+        voxel_n = np.ravel_multi_index([voxel_x, voxel_y, voxel_z], n_xyz)
+
+        return voxel_n
+
+    xyz_min = np.amin(ptclouds, axis=0)[0:3]
+    xyz_max = np.amax(ptclouds, axis=0)[0:3]
+    n_xyz = np.ceil((xyz_max-xyz_min)/gridSize).astype(np.int) #n_xyz = [nx, ny, nz]
+
+    voxel_n = voxelize_pointcloud(n_xyz)
+    n_voxels = n_xyz[0] * n_xyz[1] * n_xyz[2]
+
+    voxel_sum = groupby_sum(ptclouds, voxel_n, np.zeros((n_voxels,4)))
+    voxel_count = groupby_count(ptclouds, voxel_n, np.zeros(n_voxels))
+    voxel_grid = np.nan_to_num(voxel_sum / voxel_count.reshape(-1,1))
+    ptclouds_merged = voxel_grid[np.all(voxel_grid, axis=1)] #filter out empty voxels
+
+    return ptclouds_merged
+
+
+def compute_min_max_bounds_in_one_track(scan_dir, scan_name, objects, trajectory, cam_thres_ratio=.5, is_OBB=False):
+
+    meta_file_path = os.path.join(scan_dir, '{0}.txt'.format(scan_name))
+    axis_align_matrix, color2depth_extrinsic, camera_intrinsic, depth_intrinsic = utils.read_meta_file(meta_file_path)
 
     frustum_ptclouds = []
     frustum_planes = []
@@ -246,7 +294,7 @@ def compute_min_max_bounds_in_one_track(scan_dir, scan_name, objects, trajectory
         classname = obj['classname']
         frame_name = obj['frame_name']
         instance_ids.append(obj['instance_id'])
-        # visualize_bbox(scan_dir, obj)
+        visualize_bbox(scan_dir, obj)
 
         depth_img_path = os.path.join(scan_dir, 'depth', '{0}.png'.format(frame_name))
         depth_img = np.array(Image.open(depth_img_path))
@@ -254,56 +302,73 @@ def compute_min_max_bounds_in_one_track(scan_dir, scan_name, objects, trajectory
         camera2world_extrinsic_path = os.path.join(scan_dir, 'pose', '{0}.txt'.format(frame_name))
         camera2world_extrinsic = np.loadtxt(camera2world_extrinsic_path)  # 4*4
 
-        meta_file_path = os.path.join(scan_dir, '{0}.txt'.format(scan_name))
-        depth_intrinsic = utils.read_depth_intrinsic(meta_file_path)
-        camera_intrinsic = utils.read_camera_intrinsic(meta_file_path)
-        color2depth_extrinsic = utils.read_color2depth_extrinsic(meta_file_path)
-
         ## generate frustum point cloud
         cam_path = os.path.join(scan_dir, 'cam', '{0}.npy'.format(frame_name))
         CAMs = np.load(cam_path)
         CAM = CAMs[:, :, cfg.SCANNET.CLASS2INDEX[classname]]
         frustum_ptcloud, z_near, z_far = frustum_ptcloud_with_cam_in_world_frame(depth_img, dimension, CAM,
                                             depth_intrinsic, color2depth_extrinsic, camera2world_extrinsic)
-        ## visualize frustum point cloud
-        #visualize_frustum_ptcloud_with_cam(frustum_ptcloud)
         frustum_ptclouds.append(frustum_ptcloud)
 
         ## generate frustum clipping planes
         frustum_plane = extract_frustum_plane(dimension, camera_intrinsic, camera2world_extrinsic, z_near, z_far)
-        ## visualize frustum plan
+        frustum_planes.append(frustum_plane)
+        ## visualize single frustum
         # visualize_one_frustum(frustum_plane)
         # visualize_one_frustum_plus_points(frustum_plane, frustum_ptcloud)
-        frustum_planes.append(frustum_plane)
-
 
     ## visualize the whole point cloud and the ground truth 3D bounding box
     instance_ids = np.unique(np.array(instance_ids))
     if len(instance_ids) == 1:
-        visualize_bbox3d_in_whole_scene(scan_dir, scan_name, instance_ids[0])
+        visualize_bbox3d_in_whole_scene(scan_dir, scan_name, axis_align_matrix, instance_ids[0])
     else:
         ## debug to check if one track contains more than one instance..
         print('Warning! The track contains more than one object!')
         for instance_id in instance_ids:
             visualize_bbox3d_in_whole_scene(scan_dir, scan_name, instance_id)
 
-    # visualize_n_frustums(frustum_planes)
-    ptclouds = np.vstack(frustum_ptclouds)
-    visualize_n_frustums_plus_ptclouds(frustum_planes, ptclouds)
+    ptclouds_multiview = np.vstack(frustum_ptclouds)
+    ## merge the frustum point clouds from multiple views
+    ptclouds_merged = pcmerge(ptclouds_multiview)
+    visualize_frustum_ptcloud_with_cam(ptclouds_merged)
+    visualize_n_frustums_plus_ptclouds(frustum_planes, ptclouds_multiview)
 
-    ## compute the intersection of n frustums
-    hs = frustum_planes_intersect(frustum_planes, visu_intersection_points=True)
+    ## compute the intersection of n frustums, and remove noisy frustums
+    hs = frustum_planes_intersect(frustum_planes, visu_intersection_points=False)
+
     if hs is not None:
         min_volume = ConvexHull(hs.intersections).volume
+        frustum_planes_clean = remove_noisy_frustums(frustum_planes, min_volume, thres_volume_ratio=1.5)
+        # visualize_n_frustums_plus_ptclouds(frustum_planes_clean, ptclouds)
+        hs_clean = frustum_planes_intersect(frustum_planes_clean, visu_intersection_points=False)
+        intersection_points = hs_clean.intersections
+        inside_mask = in_hull(ptclouds_merged[:,:3],intersection_points)
+        inside_ptcloud = ptclouds_merged[inside_mask]
 
-        frustum_planes_clean = remove_noisy_frustums(frustum_planes, min_volume, thres_ratio=1.5)
-        visualize_n_frustums_plus_ptclouds(frustum_planes_clean, ptclouds)
-        hs = frustum_planes_intersect(frustum_planes_clean, visu_intersection_points=False)
-        intersection_points = hs.intersections
-        inside_mask = in_hull(ptclouds[:,:3],intersection_points)
+        visualize_convex_hull_plus_ptcloud_interactive(intersection_points, ptclouds_merged[:,:3], inside_mask)
 
-        # visualize_convex_hull_plus_ptcloud_static(intersection_points, ptclouds[:,:3], inside_mask)
-        visualize_convex_hull_plus_ptcloud_interactive(intersection_points, ptclouds[:,:3], inside_mask)
+        visualize_frustum_ptcloud_with_cam(inside_ptcloud) #debug
+
+        ## select relatively high class activated points
+        avg_cam_score = np.mean(inside_ptcloud, axis=0)[3]
+        activate_mask = np.where(inside_ptcloud[:,3]>cam_thres_ratio*avg_cam_score)[0]
+        select_ptcloud = inside_ptcloud[activate_mask]
+        visualize_frustum_ptcloud_with_cam(select_ptcloud) # debug
+
+        candidate_pts = utils.align_world_with_axis(select_ptcloud[:,:3], axis_align_matrix)
+
+        if is_OBB:
+            #TODO: oriented bounding box
+            pass
+        else:
+            ## AABB (axis-aligned bounding box) is generated
+            bbox3d = create_AABB(candidate_pts, cfg.SCANNET.CLASS2INDEX[classname])
+            visualize_bbox3d_in_whole_scene(scan_dir, scan_name, axis_align_matrix, instance_ids[0], bbox3d)
+        return bbox3d
+
+    else:
+        return None
+
 
 
 

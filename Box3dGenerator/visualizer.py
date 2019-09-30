@@ -27,8 +27,11 @@ def visualize_bbox(scan_dir, obj):
     cv2.putText(img, '%d %s' % (obj['instance_id'], obj['classname']),
                 (max(int(obj['dimension'][0]), 15), max(int(obj['dimension'][1]) + 50, 15)),
                 cv2.FONT_HERSHEY_SIMPLEX, 5, (255, 0, 0), 5)
-    cv2.circle(img, (648,484),5,(0,0,255))
-    cv2.imshow('image', img)
+    # cv2.circle(img, (648,484),5,(0,0,255))
+    winname = "Test"
+    cv2.namedWindow(winname)  # Create a named window
+    cv2.moveWindow(winname, 40, 30)
+    cv2.imshow(winname, img)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
@@ -128,7 +131,9 @@ def visualize_trajectory_in_videos(scan_dir, frame_names, objects, trajectories)
     video = []
     for frame_name in frame_names:
         frame_path = os.path.join(scan_dir, 'color', '{0}.jpg'.format(frame_name))
-        video.append(cv2.imread(frame_path))
+        img = cv2.imread(frame_path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        video.append(img)
 
     for idx, trajectory in enumerate(trajectories):
         color = tuple(np.random.randint(0, 255, 3).tolist())
@@ -157,6 +162,16 @@ def visualize_trajectory_in_videos(scan_dir, frame_names, objects, trajectories)
 
 # =============================== Visualize Point Clouds  ================================
 
+def visualize_ptcloud(xyz):
+    '''
+    :param xyz: np.ndarray, shape (n,3), coordinate
+    '''
+    vtkControl = get_vtk_control(True)
+    plotxyz(xyz)
+    vtkControl.AddAxesActor(1.0)
+    vtkControl.exec_()
+
+
 def visualize_ptcloud_with_color(xyz, rgb):
     '''
     :param xyz: np.ndarray, shape (n,3), coordinate
@@ -172,18 +187,18 @@ def visualize_frustum_ptcloud_with_cam(frustum_ptcloud):
     '''
     :param frustum_ptcloud: np.ndarray, shape (n,4) [x,y,z,s], s is the class activation score \in (0,1)
     '''
-    cm = colormap.get_cmap('inferno')
+    cm = colormap.get_cmap('RdBu')#inferno
     color_mapper = colormap.ScalarMappable(
         norm=matplotlib.colors.Normalize(vmin=0, vmax=1, clip=True), cmap=cm)
-    color = color_mapper.to_rgba(frustum_ptcloud[:, 3])[:, :3] * 255
+    color = color_mapper.to_rgba(frustum_ptcloud[:,3])[:,:3] * 255
     visualize_ptcloud_with_color(frustum_ptcloud[:,0:3], color)
 
 
-def draw_gt_boxes3d(gt_boxe3d, instance_id, fig, color=(1, 1, 1), line_width=1, draw_text=False, text_scale=(1, 1, 1),
+def draw_boxes3d(boxes3d, fig, color=(1, 1, 1), line_width=1, draw_text=False, text_scale=(1, 1, 1),
                     color_list=None):
     ''' Draw 3D bounding boxes
     Args:
-        gt_boxe3d: numpy array (8,3) for XYZs of the box corners
+        boxes3d: a list of numpy array (8,3) for XYZs of the box corners
         fig: mayavi figure handler
         color: RGB value tuple in range (0,1), box line color
         line_width: box line width
@@ -193,27 +208,29 @@ def draw_gt_boxes3d(gt_boxe3d, instance_id, fig, color=(1, 1, 1), line_width=1, 
     Returns:
         fig: updated fig
     '''
-    b = gt_boxe3d
-    if color_list is not None:
-        color = color_list[0]
-    if draw_text: mlab.text3d(b[4, 0], b[4, 1], b[4, 2], '%d' % instance_id, scale=text_scale, color=color, figure=fig)
-    for k in range(0, 4):
-        # http://docs.enthought.com/mayavi/mayavi/auto/mlab_helper_functions.html
-        i, j = k, (k + 1) % 4
-        mlab.plot3d([b[i, 0], b[j, 0]], [b[i, 1], b[j, 1]], [b[i, 2], b[j, 2]], color=color, tube_radius=None,
-                    line_width=line_width, figure=fig)
+    num = len(boxes3d)
+    for n in range(num):
+        b = boxes3d[n]
+        if color_list is not None:
+            color = color_list[n]
+        if draw_text: mlab.text3d(b[4, 0], b[4, 1], b[4, 2], '%d' % n, scale=text_scale, color=color, figure=fig)
+        for k in range(0, 4):
+            # http://docs.enthought.com/mayavi/mayavi/auto/mlab_helper_functions.html
+            i, j = k, (k + 1) % 4
+            mlab.plot3d([b[i, 0], b[j, 0]], [b[i, 1], b[j, 1]], [b[i, 2], b[j, 2]], color=color, tube_radius=None,
+                        line_width=line_width, figure=fig)
 
-        i, j = k + 4, (k + 1) % 4 + 4
-        mlab.plot3d([b[i, 0], b[j, 0]], [b[i, 1], b[j, 1]], [b[i, 2], b[j, 2]], color=color, tube_radius=None,
-                    line_width=line_width, figure=fig)
+            i, j = k + 4, (k + 1) % 4 + 4
+            mlab.plot3d([b[i, 0], b[j, 0]], [b[i, 1], b[j, 1]], [b[i, 2], b[j, 2]], color=color, tube_radius=None,
+                        line_width=line_width, figure=fig)
 
-        i, j = k, k + 4
-        mlab.plot3d([b[i, 0], b[j, 0]], [b[i, 1], b[j, 1]], [b[i, 2], b[j, 2]], color=color, tube_radius=None,
-                    line_width=line_width, figure=fig)
+            i, j = k, k + 4
+            mlab.plot3d([b[i, 0], b[j, 0]], [b[i, 1], b[j, 1]], [b[i, 2], b[j, 2]], color=color, tube_radius=None,
+                        line_width=line_width, figure=fig)
     return fig
 
 
-def visualize_bbox3d_in_whole_scene(scan_dir, scan_name, instance_id):
+def visualize_bbox3d_in_whole_scene(scan_dir, scan_name, axis_align_matrix, instance_id, pseudo_bbox=None):
     '''visualize the whole point cloud and the ground truth 3D bounding box with respect to instance_id'''
     def compute_box_3d(obj_pc):
         xmin = np.min(obj_pc[:, 0])
@@ -241,13 +258,7 @@ def visualize_bbox3d_in_whole_scene(scan_dir, scan_name, instance_id):
     # Load point cloud and align it with axis
     mesh_file = os.path.join(scan_dir, '{0}_vh_clean_2.ply'.format(scan_name))
     mesh_vertices = utils.read_mesh_vertices_rgb(mesh_file)
-
-    meta_file_path = os.path.join(scan_dir, '{0}.txt'.format(scan_name))
-    axis_align_matrix = utils.read_axis_align_matrix(meta_file_path)
-    pts = np.ones((mesh_vertices.shape[0], 4))
-    pts[:,0:3] = mesh_vertices[:,0:3]
-    pts = np.dot(pts, axis_align_matrix.transpose()) # Nx4
-    mesh_vertices[:,0:3] = pts[:,0:3]
+    mesh_vertices = utils.align_world_with_axis(mesh_vertices, axis_align_matrix)
 
     # Load semantic and instance labels
     agg_file = os.path.join(scan_dir, '{0}.aggregation.json'.format(scan_name))
@@ -262,8 +273,13 @@ def visualize_bbox3d_in_whole_scene(scan_dir, scan_name, instance_id):
 
     # Get the points inside the instance
     obj_pc = mesh_vertices[instance_ids == instance_id, 0:3]
-    bbox = compute_box_3d(obj_pc) #[x,y,z,l,w,h]
-    corners_3d = compute_box_corners(bbox) #(8,3)
+    gt_bbox = compute_box_3d(obj_pc) #[x,y,z,l,w,h]
+    gt_corners_3d = compute_box_corners(gt_bbox) #(8,3)
+    corners_3d = [gt_corners_3d]
+
+    if pseudo_bbox is not None:
+        pseudo_corners_3d = compute_box_corners(pseudo_bbox)
+        corners_3d.append(pseudo_corners_3d)
 
     bgcolor=(0,0,0)
     fig = mlab.figure(figure=None, bgcolor=bgcolor, fgcolor=None, engine=None, size=(1600, 1000))
@@ -272,7 +288,7 @@ def visualize_bbox3d_in_whole_scene(scan_dir, scan_name, instance_id):
     mlab.points3d(obj_pc[:, 0], obj_pc[:, 1], obj_pc[:, 2], color=(1, 1, 1), mode='point', scale_factor=1,
                   figure=fig)
     mlab.points3d(0, 0, 0, color=(1,1,1), mode='sphere', scale_factor=0.2)
-    draw_gt_boxes3d(corners_3d, instance_id, fig=fig)
+    draw_boxes3d(corners_3d, fig=fig, color_list=[(1,1,1),(1,0,0)])
     mlab.orientation_axes()
     mlab.show()
 
@@ -315,10 +331,11 @@ def visualize_convex_hull_plus_ptcloud_interactive(intersection_points, ptcloud,
                   scale_factor=1, figure=fig) #white
 
     mlab.points3d(intersection_points[:,0], intersection_points[:,1], intersection_points[:,2], color=(0,0,1),
-                  mode='cube', scale_factor=0.1) #blue
+                  mode='cube', scale_factor=0.05) #blue
     mlab.points3d(0, 0, 0, color=(1,1,1), mode='sphere', scale_factor=0.2)
     mlab.orientation_axes()
     mlab.show()
+    # mlab.close(all=True)
 
 
 
@@ -427,7 +444,7 @@ def visualize_one_frustum_plus_points(p_planes, frustum_ptcloud):
     mappers[-1].SetInputConnection(shrink.GetOutputPort())
 
     # assin color to ptcloud (n,4)
-    cm = colormap.get_cmap('inferno')
+    cm = colormap.get_cmap('RdBu')
     color_mapper = colormap.ScalarMappable(
         norm=matplotlib.colors.Normalize(vmin=0, vmax=1, clip=True), cmap=cm)
     color = color_mapper.to_rgba(frustum_ptcloud[:, 3])[:, :3] * 255
@@ -616,7 +633,7 @@ def visualize_n_frustums_plus_ptclouds(p_planes_list, frustum_ptcloud):
 
     # add ptclouds
     # assin color to ptcloud (n,4)
-    cm = colormap.get_cmap('inferno')
+    cm = colormap.get_cmap('RdBu')
     color_mapper = colormap.ScalarMappable(
         norm=matplotlib.colors.Normalize(vmin=0, vmax=1, clip=True), cmap=cm)
     color = color_mapper.to_rgba(frustum_ptcloud[:, 3])[:, :3] * 255

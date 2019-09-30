@@ -207,9 +207,51 @@ def read_color2depth_extrinsic(file_path):
                                      for x in line.rstrip().strip('colorToDepthExtrinsics = ').split(' ')]
             break
     else:
-        return None
+        return np.identity(4)
     color2depth_extrinsic = np.array(color2depth_extrinsic).reshape((4, 4))
     return color2depth_extrinsic
+
+
+def read_meta_file(file_path):
+    ''' Load all the matrices (i.e, axisAlignment, color2depth_extrinsic, camera_intrinsic, depth_intrinsic)
+        from meta file (<sceneid>.txt)
+    '''
+    lines = open(file_path).readlines()
+
+    axis_align_matrix = np.identity(4)
+    color2depth_extrinsic = np.identity(4)
+    camera_intrinsic = np.zeros((3, 4), dtype=np.float32)
+    depth_intrinsic = np.zeros((3, 4), dtype=np.float32)
+
+    for line in lines:
+        if 'colorToDepthExtrinsics' in line:
+            color2depth_extrinsic = np.array([float(x) for x in \
+                                            line.rstrip().strip('colorToDepthExtrinsics = ').split(' ')]).reshape((4,4))
+        if 'axisAlignment' in line:
+            axis_align_matrix = np.array([float(x) for x in \
+                                          line.rstrip().strip('axisAlignment = ').split(' ')]).reshape((4,4))
+        if 'fx_color' in line:
+            camera_intrinsic[0, 0] = float(line.rstrip().strip('fx_color = '))
+        if 'fy_color' in line:
+            camera_intrinsic[1, 1] = float(line.rstrip().strip('fy_color = '))
+        if 'mx_color' in line:
+            camera_intrinsic[0, 2] = float(line.rstrip().strip('mx_color = '))
+        if 'my_color' in line:
+            camera_intrinsic[1, 2] = float(line.rstrip().strip('my_color = '))
+
+        if 'fx_depth' in line:
+            depth_intrinsic[0, 0] = float(line.rstrip().strip('fx_depth = '))
+        if 'fy_depth' in line:
+            depth_intrinsic[1, 1] = float(line.rstrip().strip('fy_depth = '))
+        if 'mx_depth' in line:
+            depth_intrinsic[0, 2] = float(line.rstrip().strip('mx_depth = '))
+        if 'my_depth' in line:
+            depth_intrinsic[1, 2] = float(line.rstrip().strip('my_depth = '))
+
+    camera_intrinsic[2, 2] = 1.
+    depth_intrinsic[2, 2] = 1.
+
+    return axis_align_matrix, color2depth_extrinsic, camera_intrinsic, depth_intrinsic
 
 
 def read_2Dbbox(file_path):
@@ -392,10 +434,22 @@ def calibrate_camera_depth_to_color(pts, K):
     pts_color[:, 0:3] = pts[:, 0:3]
 
     if K is not None:
-        pts_color = pts_color @ np.linalg.inv(K)#.transpose()
+        pts_color = pts_color @ np.linalg.inv(K)
 
     return pts_color
 
+
+def align_world_with_axis(pts, axis_align_matrix):
+    '''
+    Align the point cloud in the world frame with axis
+    :param pts: numpy array (n,3), points in world coordinate
+    :return: pts: numpy array (n,3)
+    '''
+    pts_ext = np.ones((pts.shape[0], 4))
+    pts_ext[:,0:3] = pts[:,0:3]
+    pts_align = pts_ext @ axis_align_matrix.transpose() # Nx4
+    pts[:,0:3] = pts_align[:,0:3]
+    return pts
 #####################################################################################################
 
 
