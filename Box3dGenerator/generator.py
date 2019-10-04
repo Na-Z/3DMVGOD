@@ -18,8 +18,8 @@ def process_one_scan(scan_dir, scan_name, valid_frame_names):
     # extract cams of objects
     for i, trajectory in enumerate(trajectories):
         print('Generate 3D bbox for the {0}-th trajectory [length: {1}]'.format(i, len(trajectory)))
-        # if i <= 0: continue
-        compute_min_max_bounds_in_one_track(scan_dir, scan_name, objects, trajectory)
+        box3d = compute_min_max_bounds_in_one_track(scan_dir, scan_name, objects, trajectory)
+        #TODO: merge the bboxes if overlap larger than a certain threshold
 
 
 def main(opt):
@@ -43,7 +43,7 @@ def main(opt):
     for scan_idx, scan_name in enumerate(scan_name_list):
         print('------------------Process ({0}, {1})------------------'.format(scan_idx, scan_name))
         scan_dir = os.path.join(data_dir, scan_name)
-        # TODO: modify file name, remove {2}frameskip
+        # TODO: modify file name, if not frameskip
         # valid_frame_names_file = os.path.join(scan_dir, '{0}_validframes_{1}class.txt'
         #                                       .format(scan_name, len(cfg.SCANNET.CLASSES)))
         valid_frame_names_file = os.path.join(scan_dir, '{0}_validframes_18class_{1}frameskip.txt'
@@ -58,7 +58,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--root_dir', default='/mnt/Data/Datasets/ScanNet_v2/', help='path to data')
-    parser.add_argument('--scan_id', default='scene0431_00', help='specific scan id to download') #'scene0067_02','scene0543_02','scene0299_00','scene0431_00'
+    parser.add_argument('--scan_id', default=None, help='specific scan id to download') #'scene0067_02','scene0543_02','scene0299_00','scene0431_00'
 
     opt = parser.parse_args()
 
