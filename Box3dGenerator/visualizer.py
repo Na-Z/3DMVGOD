@@ -12,21 +12,23 @@ from vtk_visualizer.plot3d import *
 from vtk_visualizer import get_vtk_control
 from scipy.spatial import Delaunay
 
+from config import cfg
 import data.scannet.scannet_utils as utils
 
 
-def visualize_bbox(scan_dir, obj):
+def visualize_bbox(scan_dir, obj, draw_text=True):
     img_path = os.path.join(scan_dir, 'color', '{0}.jpg'.format(obj['frame_name']))
 
     img = cv2.imread(img_path)
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
     cv2.rectangle(img, (int(obj['dimension'][0]), int(obj['dimension'][1])),
                   (int(obj['dimension'][2]), int(obj['dimension'][3])),
                   (0, 255, 0), 15)
-    cv2.putText(img, '%d %s' % (obj['instance_id'], obj['classname']),
-                (max(int(obj['dimension'][0]), 15), max(int(obj['dimension'][1]) + 50, 15)),
-                cv2.FONT_HERSHEY_SIMPLEX, 5, (255, 0, 0), 5)
+    if draw_text:
+        cv2.putText(img, '%d %s' % (obj['instance_id'], obj['classname']),
+                    (max(int(obj['dimension'][0]), 15), max(int(obj['dimension'][1]) + 50, 15)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 5, (255, 0, 0), 5)
     # cv2.circle(img, (648,484),5,(0,0,255))
     winname = "Test"
     cv2.namedWindow(winname)  # Create a named window
@@ -132,7 +134,7 @@ def visualize_trajectory_in_videos(scan_dir, frame_names, objects, trajectories)
     for frame_name in frame_names:
         frame_path = os.path.join(scan_dir, 'color', '{0}.jpg'.format(frame_name))
         img = cv2.imread(frame_path)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         video.append(img)
 
     for idx, trajectory in enumerate(trajectories):
@@ -155,9 +157,9 @@ def visualize_trajectory_in_videos(scan_dir, frame_names, objects, trajectories)
             break
     cv2.destroyAllWindows()
 
-    ## write_video
+    # write_video
     # out_path = os.path.join('./visualize/{0}.mp4'.format(scan_dir.split('/')[-1]))
-    # write_video(video, 2, (cfg.SCANNET.IMAGE_WIDTH, cfg.SCANNET.IMAGE_HEIGHT), out_path)
+    #write_video(video, 2, (cfg.SCANNET.IMAGE_WIDTH, cfg.SCANNET.IMAGE_HEIGHT), out_path)
 
 
 # =============================== Visualize Point Clouds  ================================

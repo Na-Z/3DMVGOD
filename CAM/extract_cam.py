@@ -27,8 +27,8 @@ parser.add_argument('--checkpoint_path', type=str, default='./checkpoints_201909
                                                         # ./checkpoints_20190928-00-34/ResNet50_8_0.75006.pth
 parser.add_argument('--threshold', type=float, default=0.2,
                                         help='to suppress the corresponding CAM by the threshold of its maximum value')
-parser.add_argument('--to_visualize', type=bool, default=False, help='Save the CAMs as heatmap images for visualization')
-parser.add_argument('--to_save', type=bool, default=True, help='Save the CAMs as numpy array for further processing')
+parser.add_argument('--to_visualize', type=bool, default=True, help='Save the CAMs as heatmap images for visualization')
+parser.add_argument('--to_save', type=bool, default=False, help='Save the CAMs as numpy array for further processing')
 opt = parser.parse_args()
 
 net = model.load_net(opt.model_name, opt.classes, opt.checkpoint_path).cuda()

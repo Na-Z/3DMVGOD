@@ -294,10 +294,14 @@ def compute_min_max_bounds_in_one_track(scan_dir, scan_name, objects, trajectory
         classname = obj['classname']
         frame_name = obj['frame_name']
         instance_ids.append(obj['instance_id'])
-        visualize_bbox(scan_dir, obj)
+        #visualize_bbox(scan_dir, obj, draw_text=False)
 
         depth_img_path = os.path.join(scan_dir, 'depth', '{0}.png'.format(frame_name))
         depth_img = np.array(Image.open(depth_img_path))
+
+        #depth_img[depth_img == 0] = np.max(depth_img)
+        #plt.imshow(1.0 / depth_img)
+        #plt.show()
 
         camera2world_extrinsic_path = os.path.join(scan_dir, 'pose', '{0}.txt'.format(frame_name))
         camera2world_extrinsic = np.loadtxt(camera2world_extrinsic_path)  # 4*4
@@ -325,7 +329,7 @@ def compute_min_max_bounds_in_one_track(scan_dir, scan_name, objects, trajectory
         ## debug to check if one track contains more than one instance..
         print('Warning! The track contains more than one object!')
         for instance_id in instance_ids:
-            visualize_bbox3d_in_whole_scene(scan_dir, scan_name, instance_id)
+            visualize_bbox3d_in_whole_scene(scan_dir, scan_name, axis_align_matrix, instance_id)
 
     ptclouds_multiview = np.vstack(frustum_ptclouds)
     ## merge the frustum point clouds from multiple views

@@ -6,11 +6,10 @@ Weakly supervised 3D object detection using multi-view geometry
 
 ## Requirements
 
-1. Install [Pytorch v1.1.0] 
+Build anaconda environment with all the required packages
 
-2. Install additional Python packages: 
    ```
-   pip install 
+   conda env create -f env_3dod.yml
    ```
 
 
